@@ -57,10 +57,10 @@ For every prompt received, formulate your response as follows:
 - [x] **Task 4.3:** Write `src/models/distillation.py` (Contrastive loss orchestration between VLM Teacher and CNN/ViT-Tiny Student). *Run Ruff/Pyright.*
 
 ### Phase 5: Full-Pipeline Training, Testing, and Validation Reporting
-- [ ] **Task 5.1:** Execute end-to-end training for classifier, localization, and distillation components; persist artifacts/checkpoints. *Run Ruff/Pyright.*
-- [ ] **Task 5.2:** Run comprehensive evaluation and generate a consolidated performance report in `results/`. *Include classification/localization/semantic + latency metrics.*
-- [ ] **Task 5.3:** Validate full application phase on local host (no `docker`/`docker compose`). *Gate pass required; perform root-cause analysis for any failure.*
-- [ ] **Task 5.4:** Validate full application phase in container environment using `docker compose` and `docker`. *Use Docker cache/layer reuse where appropriate.*
+- [x] **Task 5.1:** Execute end-to-end training for classifier, localization, and distillation components; persist artifacts/checkpoints. *Run Ruff/Pyright.*
+- [x] **Task 5.2:** Run comprehensive evaluation and generate a consolidated performance report in `results/`. *Include classification/localization/semantic + latency metrics.*
+- [x] **Task 5.3:** Validate full application phase on local host (no `docker`/`docker compose`). *Gate pass required; perform root-cause analysis for any failure.*
+- [x] **Task 5.4:** Validate full application phase in container environment using `docker compose` and `docker`. *Use Docker cache/layer reuse where appropriate.*
 
 ### Phase 6: AMD MIGraphX Compilation & Unified CI/CD Verification
 - [ ] **Task 6.1:** Write ONNX serialization script for DINOv2 backbone, SVM, Student VLM, and Dinomaly model (dynamic batching axes). *Run Ruff/Pyright.*
