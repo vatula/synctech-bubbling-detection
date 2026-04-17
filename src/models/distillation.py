@@ -209,8 +209,13 @@ def contrastive_distillation_loss(
         )
         raise ValueError(msg)
 
+    aligned_teacher = teacher_embeddings.to(
+        device=student_embeddings.device,
+        dtype=student_embeddings.dtype,
+    )
+
     student = F.normalize(student_embeddings, dim=-1)
-    teacher = F.normalize(teacher_embeddings, dim=-1)
+    teacher = F.normalize(aligned_teacher, dim=-1)
 
     logits = torch.matmul(student, teacher.T) / temperature
     labels = torch.arange(logits.shape[0], device=logits.device)
@@ -291,6 +296,29 @@ class ContrastiveDistillationTrainer:
         return history
 
 
+def save_distillation_checkpoint(
+    student: nn.Module,
+    history: list[float],
+    output_dir: str | Path,
+) -> Path:
+    checkpoint_dir = Path(output_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoint_dir / "student_distillation.pt"
+
+    payload: dict[str, object] = {
+        "student_state_dict": student.state_dict(),
+        "loss_history": history,
+        "epochs": len(history),
+    }
+    torch.save(payload, checkpoint_path)
+    log.info(
+        "Saved distillation checkpoint",
+        path=str(checkpoint_path),
+        epochs=len(history),
+    )
+    return checkpoint_path
+
+
 def build_distillation_dataloader(
     nominal_dir: str | Path,
     bubbling_dir: str | Path,
@@ -334,7 +362,12 @@ def main() -> None:
         embedding_dim=warmup_embeddings.shape[1],
     )
     trainer = ContrastiveDistillationTrainer(teacher=teacher, student=student)
-    trainer.fit(dataloader=dataloader, epochs=1)
+    history = trainer.fit(dataloader=dataloader, epochs=1)
+    save_distillation_checkpoint(
+        student=student,
+        history=history,
+        output_dir="results/phase5/distillation",
+    )
 
 
 if __name__ == "__main__":

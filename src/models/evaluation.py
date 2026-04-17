@@ -1,0 +1,398 @@
+from __future__ import annotations
+
+import json
+import pickle
+import time
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TypedDict, cast
+
+import numpy as np
+import torch
+from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+from sklearn.model_selection import LeaveOneOut
+from sklearn.svm import LinearSVC
+
+from src.data.loader import BubblingDataset
+from src.data.transforms import get_inference_transforms
+from src.models.distillation import build_student
+from src.models.extractor import FeatureExtractor
+from src.models.localization import AnomalyLocalizer
+from src.utils.logger import get_logger, setup_project
+
+log = get_logger("evaluation")
+
+
+class BinaryMetrics(TypedDict):
+    accuracy: float
+    auroc: float
+    precision: float
+    recall: float
+
+
+class LocalizationMetrics(BinaryMetrics):
+    mean_score_nominal: float
+    mean_score_bubbling: float
+    mean_box_count: float
+    mean_mask_ratio_nominal: float
+    mean_mask_ratio_bubbling: float
+
+
+class SemanticMetrics(BinaryMetrics):
+    final_distillation_loss: float
+    mean_distillation_loss: float
+    embedding_norm_mean: float
+    embedding_norm_std: float
+
+
+class LatencyMetrics(TypedDict):
+    classification_mean_ms: float
+    localization_mean_ms: float
+    semantic_mean_ms: float
+    end_to_end_estimated_mean_ms: float
+
+
+class ConsolidatedReport(TypedDict):
+    generated_at_utc: str
+    sample_count: int
+    classification: BinaryMetrics
+    localization: LocalizationMetrics
+    semantic: SemanticMetrics
+    latency_ms: LatencyMetrics
+
+
+@dataclass(frozen=True)
+class EvaluationSample:
+    path: Path
+    label: int
+    image: torch.Tensor
+
+
+def _compute_binary_metrics(
+    y_true: list[int], y_pred: list[int], y_score: list[float]
+) -> BinaryMetrics:
+    return {
+        "accuracy": float(accuracy_score(y_true, y_pred)),
+        "auroc": float(roc_auc_score(y_true, y_score)),
+        "precision": float(precision_score(y_true, y_pred)),
+        "recall": float(recall_score(y_true, y_pred)),
+    }
+
+
+def _load_samples() -> list[EvaluationSample]:
+    dataset = BubblingDataset(
+        nominal_dir=Path("resources/assignment/hard-negatives-bubbling"),
+        bubbling_dir=Path("resources/assignment/train-bubbling"),
+        transform=get_inference_transforms(),
+    )
+
+    samples: list[EvaluationSample] = []
+    for idx in range(len(dataset)):
+        image, label = dataset[idx]
+        sample = EvaluationSample(
+            path=dataset.image_paths[idx],
+            label=int(label),
+            image=image,
+        )
+        samples.append(sample)
+
+    return samples
+
+
+def evaluate_classification(
+    samples: list[EvaluationSample],
+    classifier_path: Path,
+) -> tuple[BinaryMetrics, float]:
+    if not classifier_path.exists():
+        msg = f"Classifier artifact not found: {classifier_path}"
+        raise FileNotFoundError(msg)
+
+    with classifier_path.open("rb") as file:
+        classifier = cast(LinearSVC, pickle.load(file))
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    extractor = FeatureExtractor().to(device)
+    extractor.eval()
+
+    y_true: list[int] = []
+    y_pred: list[int] = []
+    y_score: list[float] = []
+    latencies_ms: list[float] = []
+
+    for sample in samples:
+        started = time.perf_counter()
+        with torch.no_grad():
+            features = extractor(sample.image.unsqueeze(0).to(device)).cpu().numpy()
+        prediction = cast(np.ndarray, classifier.predict(features))
+        decision = cast(np.ndarray, classifier.decision_function(features))
+        finished = time.perf_counter()
+
+        y_true.append(sample.label)
+        y_pred.append(int(prediction[0]))
+        y_score.append(float(decision[0]))
+        latencies_ms.append((finished - started) * 1000.0)
+
+    metrics = _compute_binary_metrics(y_true=y_true, y_pred=y_pred, y_score=y_score)
+    latency_mean = float(np.mean(latencies_ms))
+    return metrics, latency_mean
+
+
+def _resolve_dinomaly_checkpoint() -> Path:
+    preferred = Path("results/Dinomaly/bubbling/latest/weights/lightning/model.ckpt")
+    if preferred.exists():
+        return preferred
+
+    run_dirs = sorted(Path("results/Dinomaly/bubbling").glob("v*"))
+    for run_dir in reversed(run_dirs):
+        candidate = run_dir / "weights/lightning/model.ckpt"
+        if candidate.exists():
+            return candidate
+
+    msg = "No Dinomaly checkpoint found under results/Dinomaly/bubbling"
+    raise FileNotFoundError(msg)
+
+
+def evaluate_localization(
+    samples: list[EvaluationSample],
+) -> tuple[LocalizationMetrics, float]:
+    checkpoint_path = _resolve_dinomaly_checkpoint()
+    localizer = AnomalyLocalizer(checkpoint_path=checkpoint_path)
+
+    y_true: list[int] = []
+    y_pred: list[int] = []
+    y_score: list[float] = []
+    latencies_ms: list[float] = []
+    box_counts: list[float] = []
+    mask_ratios_nominal: list[float] = []
+    mask_ratios_bubbling: list[float] = []
+    nominal_scores: list[float] = []
+    bubbling_scores: list[float] = []
+
+    for sample in samples:
+        started = time.perf_counter()
+        output = localizer.process_image(sample.path)
+        finished = time.perf_counter()
+
+        score = float(output["score"])
+        mask = cast(np.ndarray, output["mask"])
+        boxes = cast(list[list[int]], output["boxes"])
+
+        y_true.append(sample.label)
+        y_score.append(score)
+        y_pred.append(1 if score >= 0.5 else 0)
+        latencies_ms.append((finished - started) * 1000.0)
+        box_counts.append(float(len(boxes)))
+
+        mask_ratio = float(np.count_nonzero(mask)) / float(mask.size)
+        if sample.label == 0:
+            mask_ratios_nominal.append(mask_ratio)
+            nominal_scores.append(score)
+        else:
+            mask_ratios_bubbling.append(mask_ratio)
+            bubbling_scores.append(score)
+
+    metrics: LocalizationMetrics = {
+        **_compute_binary_metrics(y_true=y_true, y_pred=y_pred, y_score=y_score),
+        "mean_score_nominal": float(np.mean(nominal_scores)),
+        "mean_score_bubbling": float(np.mean(bubbling_scores)),
+        "mean_box_count": float(np.mean(box_counts)),
+        "mean_mask_ratio_nominal": float(np.mean(mask_ratios_nominal)),
+        "mean_mask_ratio_bubbling": float(np.mean(mask_ratios_bubbling)),
+    }
+
+    latency_mean = float(np.mean(latencies_ms))
+    return metrics, latency_mean
+
+
+def _infer_embedding_dim(state_dict: dict[str, torch.Tensor]) -> int:
+    for key in ["backbone.head.weight", "head.weight"]:
+        if key in state_dict and state_dict[key].ndim == 2:
+            return int(state_dict[key].shape[0])
+
+    for value in state_dict.values():
+        if value.ndim == 2:
+            return int(value.shape[0])
+
+    msg = "Unable to infer embedding dimension from student checkpoint"
+    raise RuntimeError(msg)
+
+
+def evaluate_semantic(
+    samples: list[EvaluationSample],
+    checkpoint_path: Path,
+) -> tuple[SemanticMetrics, float]:
+    if not checkpoint_path.exists():
+        msg = f"Distillation checkpoint not found: {checkpoint_path}"
+        raise FileNotFoundError(msg)
+
+    payload = cast(dict[str, object], torch.load(checkpoint_path, map_location="cpu"))
+    state_dict = cast(dict[str, torch.Tensor], payload["student_state_dict"])
+    history = cast(list[float], payload.get("loss_history", []))
+
+    embedding_dim = _infer_embedding_dim(state_dict)
+    student = build_student(architecture="vit_tiny", embedding_dim=embedding_dim)
+    student.load_state_dict(state_dict)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    student.to(device)
+    student.eval()
+
+    y_true: list[int] = []
+    y_pred: list[int] = []
+    y_score: list[float] = []
+    latencies_ms: list[float] = []
+    embeddings: list[np.ndarray] = []
+    embedding_norms: list[float] = []
+
+    with torch.no_grad():
+        for sample in samples:
+            started = time.perf_counter()
+            embedding = student(sample.image.unsqueeze(0).to(device)).cpu().numpy()
+            finished = time.perf_counter()
+
+            embeddings.append(embedding)
+            embedding_norms.append(float(np.linalg.norm(embedding[0])))
+            y_true.append(sample.label)
+            latencies_ms.append((finished - started) * 1000.0)
+
+    embedding_matrix = np.concatenate(embeddings, axis=0)
+
+    loo = LeaveOneOut()
+    evaluator = LinearSVC(class_weight="balanced", random_state=42, dual="auto")
+    for train_idx, test_idx in loo.split(embedding_matrix):
+        x_train = embedding_matrix[train_idx]
+        y_train = np.array(y_true)[train_idx]
+        x_test = embedding_matrix[test_idx]
+
+        evaluator.fit(x_train, y_train)
+        prediction = cast(np.ndarray, evaluator.predict(x_test))
+        decision = cast(np.ndarray, evaluator.decision_function(x_test))
+
+        y_pred.append(int(prediction[0]))
+        y_score.append(float(decision[0]))
+
+    semantic_metrics: SemanticMetrics = {
+        **_compute_binary_metrics(y_true=y_true, y_pred=y_pred, y_score=y_score),
+        "final_distillation_loss": float(history[-1]) if history else float("nan"),
+        "mean_distillation_loss": float(np.mean(history)) if history else float("nan"),
+        "embedding_norm_mean": float(np.mean(embedding_norms)),
+        "embedding_norm_std": float(np.std(embedding_norms)),
+    }
+
+    latency_mean = float(np.mean(latencies_ms))
+    return semantic_metrics, latency_mean
+
+
+def _render_markdown(report: ConsolidatedReport) -> str:
+    classification = report["classification"]
+    localization = report["localization"]
+    semantic = report["semantic"]
+    latency = report["latency_ms"]
+
+    return "\n".join(
+        [
+            "### Phase 5 Consolidated Evaluation Report",
+            f"- Generated at (UTC): {report['generated_at_utc']}",
+            f"- Sample count: {report['sample_count']}",
+            "",
+            "### Classification",
+            f"- Accuracy: {classification['accuracy']:.6f}",
+            f"- AUROC: {classification['auroc']:.6f}",
+            f"- Precision: {classification['precision']:.6f}",
+            f"- Recall: {classification['recall']:.6f}",
+            "",
+            "### Localization",
+            f"- Accuracy: {localization['accuracy']:.6f}",
+            f"- AUROC: {localization['auroc']:.6f}",
+            f"- Precision: {localization['precision']:.6f}",
+            f"- Recall: {localization['recall']:.6f}",
+            f"- Mean nominal anomaly score: {localization['mean_score_nominal']:.6f}",
+            f"- Mean bubbling anomaly score: {localization['mean_score_bubbling']:.6f}",
+            f"- Mean box count: {localization['mean_box_count']:.6f}",
+            (
+                "- Mean nominal mask ratio: "
+                f"{localization['mean_mask_ratio_nominal']:.6f}"
+            ),
+            (
+                "- Mean bubbling mask ratio: "
+                f"{localization['mean_mask_ratio_bubbling']:.6f}"
+            ),
+            "",
+            "### Semantic (Distilled Student)",
+            f"- Accuracy: {semantic['accuracy']:.6f}",
+            f"- AUROC: {semantic['auroc']:.6f}",
+            f"- Precision: {semantic['precision']:.6f}",
+            f"- Recall: {semantic['recall']:.6f}",
+            (f"- Final distillation loss: {semantic['final_distillation_loss']:.6f}"),
+            (f"- Mean distillation loss: {semantic['mean_distillation_loss']:.6f}"),
+            f"- Embedding norm mean: {semantic['embedding_norm_mean']:.6f}",
+            f"- Embedding norm std: {semantic['embedding_norm_std']:.6f}",
+            "",
+            "### Latency (mean ms / sample)",
+            f"- Classification: {latency['classification_mean_ms']:.6f}",
+            f"- Localization: {latency['localization_mean_ms']:.6f}",
+            f"- Semantic: {latency['semantic_mean_ms']:.6f}",
+            f"- End-to-end estimated: {latency['end_to_end_estimated_mean_ms']:.6f}",
+        ]
+    )
+
+
+def write_report(report: ConsolidatedReport) -> tuple[Path, Path]:
+    output_dir = Path("results")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    json_path = output_dir / "phase5_consolidated_report.json"
+    markdown_path = output_dir / "phase5_consolidated_report.md"
+
+    with json_path.open("w", encoding="utf-8") as json_file:
+        json.dump(report, json_file, indent=2)
+
+    with markdown_path.open("w", encoding="utf-8") as markdown_file:
+        markdown_file.write(_render_markdown(report))
+
+    return json_path, markdown_path
+
+
+def main() -> None:
+    samples = _load_samples()
+
+    classification_metrics, classification_latency = evaluate_classification(
+        samples=samples,
+        classifier_path=Path("results/phase5/classifier/linear_svc.pkl"),
+    )
+    localization_metrics, localization_latency = evaluate_localization(samples=samples)
+    semantic_metrics, semantic_latency = evaluate_semantic(
+        samples=samples,
+        checkpoint_path=Path("results/phase5/distillation/student_distillation.pt"),
+    )
+
+    latency_report: LatencyMetrics = {
+        "classification_mean_ms": classification_latency,
+        "localization_mean_ms": localization_latency,
+        "semantic_mean_ms": semantic_latency,
+        "end_to_end_estimated_mean_ms": (
+            classification_latency + localization_latency + semantic_latency
+        ),
+    }
+
+    report: ConsolidatedReport = {
+        "generated_at_utc": datetime.now(tz=UTC).isoformat(),
+        "sample_count": len(samples),
+        "classification": classification_metrics,
+        "localization": localization_metrics,
+        "semantic": semantic_metrics,
+        "latency_ms": latency_report,
+    }
+
+    json_path, markdown_path = write_report(report)
+    log.info(
+        "Phase 5 consolidated report generated",
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+    )
+
+
+if __name__ == "__main__":
+    setup_project()
+    main()

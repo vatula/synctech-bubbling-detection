@@ -1,3 +1,6 @@
+import json
+import pickle
+from pathlib import Path
 from typing import TypedDict
 
 import numpy as np
@@ -6,7 +9,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_a
 from sklearn.model_selection import LeaveOneOut
 from sklearn.svm import LinearSVC
 
-from utils.logger import get_logger
+from src.utils.logger import get_logger
 
 log = get_logger("classifier")
 
@@ -88,13 +91,40 @@ class BubblingClassifier:
         log.info("LOOCV Validation Report", **metrics)
         return metrics
 
+    def fit_full(self, features: np.ndarray, labels: np.ndarray) -> None:
+        """Fits the classifier on the full dataset for checkpoint persistence."""
+        self.model.fit(features, labels)
+
+
+def save_classifier_artifacts(
+    classifier: BubblingClassifier,
+    metrics: Metrics,
+    output_dir: str | Path,
+) -> tuple[Path, Path]:
+    artifact_dir = Path(output_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    model_path = artifact_dir / "linear_svc.pkl"
+    metrics_path = artifact_dir / "loocv_metrics.json"
+
+    with model_path.open("wb") as model_file:
+        pickle.dump(classifier.model, model_file)
+
+    with metrics_path.open("w", encoding="utf-8") as metrics_file:
+        json.dump(metrics, metrics_file, indent=2)
+
+    log.info(
+        "Saved classifier artifacts",
+        model_path=str(model_path),
+        metrics_path=str(metrics_path),
+    )
+    return model_path, metrics_path
+
 
 def main() -> None:
     """
     Main entry point for running Phase 2 classification.
     """
-    from pathlib import Path
-
     from src.data.loader import BubblingDataset
     from src.models.extractor import FeatureExtractor
 
@@ -131,7 +161,13 @@ def main() -> None:
 
     # Initialize and run LOOCV
     classifier = BubblingClassifier()
-    classifier.run_loocv(X, y)
+    metrics = classifier.run_loocv(X, y)
+    classifier.fit_full(X, y)
+    save_classifier_artifacts(
+        classifier=classifier,
+        metrics=metrics,
+        output_dir="results/phase5/classifier",
+    )
 
 
 if __name__ == "__main__":

@@ -64,7 +64,10 @@ class AnomalyLocalizer:
         """
         # Engine.predict returns a list of results (usually one per batch)
         results = self.engine.predict(
-            model=self.model, data_path=str(image_path), return_predictions=True
+            model=self.model,
+            data_path=str(image_path),
+            return_predictions=True,
+            ckpt_path=str(self.checkpoint_path),
         )
 
         # results is typically a list of ImageBatch
