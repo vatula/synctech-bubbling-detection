@@ -45,9 +45,43 @@ class AnomalyLocalizer:
         )
         self.model.to(self.device)
         self.model.eval()
+        self._architecture = (
+            f"{self.model.__class__.__module__}.{self.model.__class__.__name__}"
+        )
+        self._encoder_name = self._resolve_encoder_name()
 
         # Engine is needed for predict
         self.engine = Engine(devices=1 if self.device.type == "cuda" else 0)
+
+    def _resolve_encoder_name(self) -> str:
+        candidate_fields = ("backbone", "encoder_name", "encoder", "backbone_name")
+
+        for field_name in candidate_fields:
+            value = getattr(self.model, field_name, None)
+            if isinstance(value, str) and value:
+                return value
+
+        hparams = getattr(self.model, "hparams", None)
+        if isinstance(hparams, dict):
+            for field_name in candidate_fields:
+                value = hparams.get(field_name)
+                if isinstance(value, str) and value:
+                    return value
+        elif hparams is not None:
+            for field_name in candidate_fields:
+                value = getattr(hparams, field_name, None)
+                if isinstance(value, str) and value:
+                    return value
+
+        return self.model.__class__.__name__
+
+    def get_provenance(self, score_threshold: float = 0.5) -> dict[str, str | float]:
+        return {
+            "architecture": self._architecture,
+            "encoder_name": self._encoder_name,
+            "checkpoint_path": str(self.checkpoint_path),
+            "score_threshold": score_threshold,
+        }
 
     def process_image(
         self, image_path: str | Path, threshold: float = 0.5

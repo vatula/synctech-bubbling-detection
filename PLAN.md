@@ -96,7 +96,12 @@ This document serves as the authoritative, serialized execution plan for the AI 
     * Persist all trained artifacts and checkpoints required for validation and downstream export.
 * **Task 5.2: Comprehensive Testing and Performance Reporting**
     * Run the full evaluation suite for classification, localization, and semantic outputs.
-    * Generate a consolidated report in `results/` with per-stage and end-to-end metrics (accuracy/precision/recall/AUROC, localization quality, and latency).
+    * Generate a consolidated report in `results/` with per-stage and end-to-end metrics (accuracy/precision/recall/AUROC, localization quality, and latency), plus mandatory provenance fields:
+        * exact hardware/GPU model,
+        * input image resolution,
+        * effective inference batch size,
+        * localization architecture/backbone identity.
+    * Acceptance clause: the report is incomplete unless the provenance block is present in both `phase5_consolidated_report.json` and `phase5_consolidated_report.md`.
 * **Task 5.3: Gate A - Native Runtime Validation (Non-Containerized)**
     * Validate that the application phase runs flawlessly on the local host environment without `docker` or `docker compose`.
     * For any failure, perform root-cause analysis and resolve the underlying issue before proceeding.

@@ -53,9 +53,34 @@ class LatencyMetrics(TypedDict):
     end_to_end_estimated_mean_ms: float
 
 
+class RuntimeContext(TypedDict):
+    device_type: str
+    cuda_available: bool
+    gpu_model: str
+    torch_version: str
+    rocm_hip_version: str
+
+
+class InferenceContext(TypedDict):
+    input_resolution_hw: tuple[int, int]
+    classification_batch_size: int
+    localization_batch_size: int
+    semantic_batch_size: int
+
+
+class LocalizationContext(TypedDict):
+    architecture: str
+    encoder_name: str
+    checkpoint_path: str
+    score_threshold: float
+
+
 class ConsolidatedReport(TypedDict):
     generated_at_utc: str
     sample_count: int
+    runtime_context: RuntimeContext
+    inference_context: InferenceContext
+    localization_context: LocalizationContext
     classification: BinaryMetrics
     localization: LocalizationMetrics
     semantic: SemanticMetrics
@@ -98,6 +123,62 @@ def _load_samples() -> list[EvaluationSample]:
         samples.append(sample)
 
     return samples
+
+
+def _collect_runtime_context() -> RuntimeContext:
+    cuda_available = torch.cuda.is_available()
+    gpu_model = "cpu"
+    if cuda_available and torch.cuda.device_count() > 0:
+        gpu_model = str(torch.cuda.get_device_name(0))
+
+    return {
+        "device_type": "cuda" if cuda_available else "cpu",
+        "cuda_available": cuda_available,
+        "gpu_model": gpu_model,
+        "torch_version": str(torch.__version__),
+        "rocm_hip_version": str(torch.version.hip or ""),
+    }
+
+
+def _collect_inference_context(samples: list[EvaluationSample]) -> InferenceContext:
+    if not samples:
+        msg = "Cannot infer inference context from empty sample list"
+        raise ValueError(msg)
+
+    sample_image = samples[0].image
+    if sample_image.ndim != 3:
+        msg = "Expected sample image tensor shape [C, H, W]"
+        raise ValueError(msg)
+
+    height = int(sample_image.shape[-2])
+    width = int(sample_image.shape[-1])
+
+    return {
+        "input_resolution_hw": (height, width),
+        "classification_batch_size": 1,
+        "localization_batch_size": 1,
+        "semantic_batch_size": 1,
+    }
+
+
+def _collect_localization_context(
+    checkpoint_path: Path,
+    localizer: AnomalyLocalizer | None = None,
+    score_threshold: float = 0.5,
+) -> LocalizationContext:
+    resolved_localizer = (
+        localizer
+        if localizer is not None
+        else AnomalyLocalizer(checkpoint_path=checkpoint_path)
+    )
+    provenance = resolved_localizer.get_provenance(score_threshold=score_threshold)
+
+    return {
+        "architecture": str(provenance["architecture"]),
+        "encoder_name": str(provenance["encoder_name"]),
+        "checkpoint_path": str(provenance["checkpoint_path"]),
+        "score_threshold": float(provenance["score_threshold"]),
+    }
 
 
 def evaluate_classification(
@@ -155,9 +236,15 @@ def _resolve_dinomaly_checkpoint() -> Path:
 
 def evaluate_localization(
     samples: list[EvaluationSample],
-) -> tuple[LocalizationMetrics, float]:
+) -> tuple[LocalizationMetrics, float, LocalizationContext]:
     checkpoint_path = _resolve_dinomaly_checkpoint()
     localizer = AnomalyLocalizer(checkpoint_path=checkpoint_path)
+    score_threshold = 0.5
+    localization_context = _collect_localization_context(
+        checkpoint_path=checkpoint_path,
+        localizer=localizer,
+        score_threshold=score_threshold,
+    )
 
     y_true: list[int] = []
     y_pred: list[int] = []
@@ -171,7 +258,7 @@ def evaluate_localization(
 
     for sample in samples:
         started = time.perf_counter()
-        output = localizer.process_image(sample.path)
+        output = localizer.process_image(sample.path, threshold=score_threshold)
         finished = time.perf_counter()
 
         score = float(output["score"])
@@ -180,7 +267,7 @@ def evaluate_localization(
 
         y_true.append(sample.label)
         y_score.append(score)
-        y_pred.append(1 if score >= 0.5 else 0)
+        y_pred.append(1 if score >= score_threshold else 0)
         latencies_ms.append((finished - started) * 1000.0)
         box_counts.append(float(len(boxes)))
 
@@ -202,7 +289,7 @@ def evaluate_localization(
     }
 
     latency_mean = float(np.mean(latencies_ms))
-    return metrics, latency_mean
+    return metrics, latency_mean, localization_context
 
 
 def _infer_embedding_dim(state_dict: dict[str, torch.Tensor]) -> int:
@@ -285,6 +372,9 @@ def evaluate_semantic(
 
 
 def _render_markdown(report: ConsolidatedReport) -> str:
+    runtime_context = report["runtime_context"]
+    inference_context = report["inference_context"]
+    localization_context = report["localization_context"]
     classification = report["classification"]
     localization = report["localization"]
     semantic = report["semantic"]
@@ -295,6 +385,31 @@ def _render_markdown(report: ConsolidatedReport) -> str:
             "### Phase 5 Consolidated Evaluation Report",
             f"- Generated at (UTC): {report['generated_at_utc']}",
             f"- Sample count: {report['sample_count']}",
+            "",
+            "### Runtime Context",
+            f"- Device type: {runtime_context['device_type']}",
+            f"- CUDA available: {runtime_context['cuda_available']}",
+            f"- GPU model: {runtime_context['gpu_model']}",
+            f"- Torch version: {runtime_context['torch_version']}",
+            f"- ROCm HIP version: {runtime_context['rocm_hip_version']}",
+            "",
+            "### Inference Context",
+            (f"- Input resolution (H, W): {inference_context['input_resolution_hw']}"),
+            (
+                "- Classification batch size: "
+                f"{inference_context['classification_batch_size']}"
+            ),
+            (
+                "- Localization batch size: "
+                f"{inference_context['localization_batch_size']}"
+            ),
+            f"- Semantic batch size: {inference_context['semantic_batch_size']}",
+            "",
+            "### Localization Context",
+            f"- Architecture: {localization_context['architecture']}",
+            f"- Encoder name: {localization_context['encoder_name']}",
+            f"- Checkpoint path: {localization_context['checkpoint_path']}",
+            f"- Score threshold: {localization_context['score_threshold']:.6f}",
             "",
             "### Classification",
             f"- Accuracy: {classification['accuracy']:.6f}",
@@ -356,12 +471,16 @@ def write_report(report: ConsolidatedReport) -> tuple[Path, Path]:
 
 def main() -> None:
     samples = _load_samples()
+    runtime_context = _collect_runtime_context()
+    inference_context = _collect_inference_context(samples=samples)
 
     classification_metrics, classification_latency = evaluate_classification(
         samples=samples,
         classifier_path=Path("results/phase5/classifier/linear_svc.pkl"),
     )
-    localization_metrics, localization_latency = evaluate_localization(samples=samples)
+    localization_metrics, localization_latency, localization_context = (
+        evaluate_localization(samples=samples)
+    )
     semantic_metrics, semantic_latency = evaluate_semantic(
         samples=samples,
         checkpoint_path=Path("results/phase5/distillation/student_distillation.pt"),
@@ -379,6 +498,9 @@ def main() -> None:
     report: ConsolidatedReport = {
         "generated_at_utc": datetime.now(tz=UTC).isoformat(),
         "sample_count": len(samples),
+        "runtime_context": runtime_context,
+        "inference_context": inference_context,
+        "localization_context": localization_context,
         "classification": classification_metrics,
         "localization": localization_metrics,
         "semantic": semantic_metrics,

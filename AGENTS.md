@@ -58,7 +58,7 @@ For every prompt received, formulate your response as follows:
 
 ### Phase 5: Full-Pipeline Training, Testing, and Validation Reporting
 - [x] **Task 5.1:** Execute end-to-end training for classifier, localization, and distillation components; persist artifacts/checkpoints. *Run Ruff/Pyright.*
-- [x] **Task 5.2:** Run comprehensive evaluation and generate a consolidated performance report in `results/`. *Include classification/localization/semantic + latency metrics.*
+- [x] **Task 5.2:** Run comprehensive evaluation and generate a consolidated performance report in `results/`. *Include classification/localization/semantic + latency metrics plus mandatory provenance context: hardware profile, inference tensor resolution, effective inference batch size, and localization model architecture/backbone provenance. Reject Phase 5 evaluation output if provenance fields are missing.*
 - [x] **Task 5.3:** Validate full application phase on local host (no `docker`/`docker compose`). *Gate pass required; perform root-cause analysis for any failure.*
 - [x] **Task 5.4:** Validate full application phase in container environment using `docker compose` and `docker`. *Use Docker cache/layer reuse where appropriate.*
 
