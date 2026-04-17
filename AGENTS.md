@@ -31,14 +31,14 @@ For every prompt received, formulate your response as follows:
 **Agent:** Read this checklist. Identify the lowest-numbered incomplete task. Execute it. Stop.
 
 ### Phase 0: System Verification & Project Scaffolding
-- [ ] **Task 0.1:** Scaffold project (`src/data`, `src/models`, `src/utils`, `tests`, `notebooks`) and output `uv` initialization commands/Dockerfile structure.
-- [ ] **Task 0.2:** Initialize strict `ruff.toml` (enforcing `I` and `UP` rulesets), configure `pyright`, and set up the base `structlog` configuration in `src/utils/logger.py`.
-- [ ] **Task 0.3:** Write `verify_env.py` utilizing `structlog` to assert `torch.cuda.is_available()` and execute a dummy MIGraphX ONNX compilation. *Wait for human execution results.*
+- [x] **Task 0.1:** Scaffold project (`src/data`, `src/models`, `src/utils`, `tests`, `notebooks`) and output `uv` initialization commands/Dockerfile structure.
+- [x] **Task 0.2:** Initialize strict `ruff.toml` (enforcing `I` and `UP` rulesets), configure `pyright`, and set up the base `structlog` configuration in `src/utils/logger.py`.
+- [x] **Task 0.3:** Write `verify_env.py` utilizing `structlog` to assert `torch.cuda.is_available()` and execute a dummy MIGraphX ONNX compilation. *Wait for human execution results.*
 
 ### Phase 1: Core Infrastructure and Modular Dataset Engineering
-- [ ] **Task 1.1:** Write `src/data/loader.py` (Binary labeling, 13/21 imbalance handling). *Run Ruff/Pyright.*
-- [ ] **Task 1.2:** Write `src/data/transforms.py` (Albumentations: strictly D4 transforms + conservative jitter limit=0.1). *Run Ruff/Pyright.*
-- [ ] **Task 1.3:** Write `tests/test_augmentations.py` asserting absence of destructive transforms (blur, warp, invert). *Wait for human test pass.*
+- [x] **Task 1.1:** Write `src/data/loader.py` (Binary labeling, 13/21 imbalance handling). *Run Ruff/Pyright.*
+- [x] **Task 1.2:** Write `src/data/transforms.py` (Albumentations: strictly D4 transforms + conservative jitter limit=0.1). *Run Ruff/Pyright.*
+- [x] **Task 1.3:** Write `tests/test_augmentations.py` asserting absence of destructive transforms (blur, warp, invert). *Wait for human test pass.*
 
 ### Phase 2: DINOv2 Feature Extraction and Hyperplane Optimization
 - [ ] **Task 2.1:** Write micro-experiment to load `dinov2_vitl14_reg` and verify `<CLS>` and spatial patch tensor shapes. *Run Ruff/Pyright.*

@@ -8,7 +8,7 @@ This document serves as the authoritative, serialized execution plan for the AI 
 
 * You must employ a **Micro-Experiment Methodology**. Before committing to writing full application logic or complex loops, you must write a tiny, isolated script to validate your assumptions (e.g., checking tensor shapes, validating GPU visibility, or testing a single inference pass). Furthermore, you must structure the application modularly. Do not write monolithic scripts. Separate data, models, and utilities into a reusable `src/` package.
 
-## Phase 0: System Verification & Project Scaffolding
+## Phase 0: System Verification & Project Scaffolding [COMPLETED]
 
 **Objective:** Establish the project structure and validate the ROCm/MIGraphX environment to prevent downstream hardware-acceleration blockers.
 
@@ -20,7 +20,7 @@ This document serves as the authoritative, serialized execution plan for the AI 
     * _Action:_ Assert `torch.cuda.is_available()` (mapped to HIP/ROCm).
     * _Action:_ Create a dummy linear PyTorch model, export it to ONNX (Opset 17 or 18), and compile it using `migraphx` to guarantee the compiler toolchain is functional before loading massive vision models.
 
-## Phase 1: Core Infrastructure and Modular Dataset Engineering
+## Phase 1: Core Infrastructure and Modular Dataset Engineering [COMPLETED]
 
 **Objective:** Build the foundational shared dataloaders and enforce the strict augmentation constraints required to preserve specular highlight topologies.
 
