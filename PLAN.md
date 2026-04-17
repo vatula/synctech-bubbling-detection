@@ -68,9 +68,11 @@ This document serves as the authoritative, serialized execution plan for the AI 
    * Process the test dataset.
    * Extract, save, and overlay the generated segmentation masks, bounding box coordinates, and thermal-scaled distance heatmaps onto the original imagery.
 
-## Phase 4: Semantic Augmentation via VLM Distillation
+## Phase 4: Semantic Augmentation via VLM Distillation [COMPLETED]
 
 **Objective:** Fine-tune Qwen2.5-VL for semantic reasoning and set up the student-teacher knowledge transfer loop.
+
+**Operational Safety Note:** Containerized Task 4.1 execution is validated through a crash-safe CPU profile (`--device cpu` with GPU visibility disabled) due observed host-level AMDGPU instability during high-load container GPU execution.
 
 * **Task 4.1: Micro-Experiment - VLM Prompting & JSON Output**
      * _Action:_ Load `Qwen/Qwen2.5-VL-3B-Instruct` in BF16 precision.

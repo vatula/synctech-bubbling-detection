@@ -52,9 +52,9 @@ For every prompt received, formulate your response as follows:
 - [x] **Task 3.3:** Write `src/models/localization.py` to extract and overlay segmentation masks/bounding boxes/thermal heatmaps. *Run Ruff/Pyright.*
 
 ### Phase 4: Semantic Augmentation via VLM Distillation
-- [ ] **Task 4.1:** Write micro-experiment to load `Qwen2.5-VL-3B-Instruct` (BF16) and verify structured JSON reasoning on a single image. *Run Ruff/Pyright.*
-- [ ] **Task 4.2:** Output QLoRA configuration scripts (`r=8`, `lora_alpha=32`, target self-attention matrices).
-- [ ] **Task 4.3:** Write `src/models/distillation.py` (Contrastive loss orchestration between VLM Teacher and CNN/ViT-Tiny Student). *Run Ruff/Pyright.*
+- [x] **Task 4.1:** Write micro-experiment to load `Qwen2.5-VL-3B-Instruct` (BF16) and verify structured JSON reasoning on a single image. *Run Ruff/Pyright.*
+- [x] **Task 4.2:** Output QLoRA configuration scripts (`r=8`, `lora_alpha=32`, target self-attention matrices).
+- [x] **Task 4.3:** Write `src/models/distillation.py` (Contrastive loss orchestration between VLM Teacher and CNN/ViT-Tiny Student). *Run Ruff/Pyright.*
 
 ### Phase 5: AMD MIGraphX Compilation & Unified CI/CD Verification
 - [ ] **Task 5.1:** Write ONNX serialization script for DINOv2 backbone, SVM, Student VLM, and Dinomaly model (dynamic batching axes). *Run Ruff/Pyright.*

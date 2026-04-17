@@ -89,13 +89,15 @@ class AnomalyLocalizer:
 
         pred_score = float(pred_score_tensor.item())
 
+        normalized_map = np.clip(anomaly_map, 0.0, 1.0)
+
         # Normalize heatmap for visualization [0, 255]
         heatmap = cv2.applyColorMap(
-            (anomaly_map * 255).astype(np.uint8), cv2.COLORMAP_JET
+            (normalized_map * 255).astype(np.uint8), cv2.COLORMAP_JET
         )
 
         # Generate binary mask
-        mask = (anomaly_map > threshold).astype(np.uint8) * 255
+        mask = (normalized_map > threshold).astype(np.uint8) * 255
 
         # Extract bounding boxes from mask
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -110,6 +112,49 @@ class AnomalyLocalizer:
             "boxes": boxes,
             "score": pred_score,
         }
+
+    @staticmethod
+    def _map_boxes_to_target_size(
+        boxes: list[list[int]],
+        source_width: int,
+        source_height: int,
+        target_width: int,
+        target_height: int,
+    ) -> list[list[int]]:
+        if source_width <= 0 or source_height <= 0:
+            msg = "Source dimensions must be positive"
+            raise ValueError(msg)
+        if target_width <= 0 or target_height <= 0:
+            msg = "Target dimensions must be positive"
+            raise ValueError(msg)
+
+        scale_x = target_width / source_width
+        scale_y = target_height / source_height
+
+        scaled_boxes: list[list[int]] = []
+        for box in boxes:
+            if len(box) != 4:
+                msg = "Each box must contain exactly four values"
+                raise ValueError(msg)
+
+            x1 = int(round(box[0] * scale_x))
+            y1 = int(round(box[1] * scale_y))
+            x2 = int(round(box[2] * scale_x))
+            y2 = int(round(box[3] * scale_y))
+
+            x1 = min(max(x1, 0), target_width - 1)
+            y1 = min(max(y1, 0), target_height - 1)
+            x2 = min(max(x2, 0), target_width - 1)
+            y2 = min(max(y2, 0), target_height - 1)
+
+            if x2 < x1:
+                x1, x2 = x2, x1
+            if y2 < y1:
+                y1, y2 = y2, y1
+
+            scaled_boxes.append([x1, y1, x2, y2])
+
+        return scaled_boxes
 
     def overlay_results(
         self,
@@ -141,8 +186,17 @@ class AnomalyLocalizer:
         # Blending heatmap
         overlay = cv2.addWeighted(image_bgr, 1 - alpha, heatmap_resized, alpha, 0)
 
-        # Draw bounding boxes
-        for box in boxes:
+        map_h, map_w = heatmap.shape[:2]
+        mapped_boxes = self._map_boxes_to_target_size(
+            boxes=boxes,
+            source_width=map_w,
+            source_height=map_h,
+            target_width=w,
+            target_height=h,
+        )
+
+        # Draw bounding boxes in image-space coordinates
+        for box in mapped_boxes:
             cv2.rectangle(overlay, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
 
         # Return as RGB

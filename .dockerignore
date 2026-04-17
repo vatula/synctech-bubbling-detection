@@ -9,3 +9,5 @@ logs/
 resources/assignment/
 notebooks/
 results/
+.cache/
+uv.lock

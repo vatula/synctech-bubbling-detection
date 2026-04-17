@@ -15,10 +15,8 @@ dependencies = [
     "accelerate",
     "timm",
     "structlog",
-    "torch",
-    "torchvision",
-    "torchaudio",
     "onnxscript",
+    "opencv-python-headless>=4.13.0.92",
 ]
 
 [tool.uv]
@@ -27,6 +25,11 @@ index-strategy = "unsafe-best-match"
 [[tool.uv.index]]
 name = "pytorch-rocm"
 url = "https://download.pytorch.org/whl/rocm7.2"
+
+[tool.uv.sources]
+torch = { index = "pytorch-rocm" }
+torchvision = { index = "pytorch-rocm" }
+torchaudio = { index = "pytorch-rocm" }
 
 [dependency-groups]
 dev = [
