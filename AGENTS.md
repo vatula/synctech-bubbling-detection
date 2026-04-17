@@ -34,6 +34,7 @@ For every prompt received, formulate your response as follows:
 - [x] **Task 0.1:** Scaffold project (`src/data`, `src/models`, `src/utils`, `tests`, `notebooks`) and output `uv` initialization commands/Dockerfile structure.
 - [x] **Task 0.2:** Initialize strict `ruff.toml` (enforcing `I` and `UP` rulesets), configure `pyright`, and set up the base `structlog` configuration in `src/utils/logger.py`.
 - [x] **Task 0.3:** Write `verify_env.py` utilizing `structlog` to assert `torch.cuda.is_available()` and execute a dummy MIGraphX ONNX compilation. *Wait for human execution results.*
+- [x] **Task 0.4:** Perform micro-experiments and implement `torch.set_float32_matmul_precision` to optimize AMD Matrix Core utilization and eliminate precision-tradeoff warnings.
 
 ### Phase 1: Core Infrastructure and Modular Dataset Engineering
 - [x] **Task 1.1:** Write `src/data/loader.py` (Binary labeling, 13/21 imbalance handling). *Run Ruff/Pyright.*
@@ -46,9 +47,9 @@ For every prompt received, formulate your response as follows:
 - [x] **Task 2.3:** Write `src/models/classifier.py` (LinearSVC with exactly 34-iteration LOOCV). Output terminal metrics logger via `structlog`. *Run Ruff/Pyright.*
 
 ### Phase 3: Unsupervised Localization via Anomalib (Dinomaly Integration)
-- [ ] **Task 3.1:** Write `dinomaly_config.yaml` and dry-run datamodule script. *Verify correct 13-train/21-val split.*
-- [ ] **Task 3.2:** Execute Anomalib training pipeline utilizing `dinov2_vitl14` backbone.
-- [ ] **Task 3.3:** Write `src/models/localization.py` to extract and overlay segmentation masks/bounding boxes/thermal heatmaps. *Run Ruff/Pyright.*
+- [x] **Task 3.1:** Write `dinomaly_config.yaml` and dry-run datamodule script. *Verify correct 13-train/21-val split.*
+- [x] **Task 3.2:** Execute Anomalib training pipeline utilizing `dinov2_vitl14` backbone.
+- [x] **Task 3.3:** Write `src/models/localization.py` to extract and overlay segmentation masks/bounding boxes/thermal heatmaps. *Run Ruff/Pyright.*
 
 ### Phase 4: Semantic Augmentation via VLM Distillation
 - [ ] **Task 4.1:** Write micro-experiment to load `Qwen2.5-VL-3B-Instruct` (BF16) and verify structured JSON reasoning on a single image. *Run Ruff/Pyright.*

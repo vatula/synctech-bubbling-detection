@@ -3,11 +3,11 @@ name = "synctech-bubbling-detection"
 version = "0.1.0"
 description = "Bubbling defect detection using DINOv2 and Anomalib on ROCm"
 authors = [{ name = "Bogdan", email = "bogdan.watula@gmail.com" }]
-requires-python = ">=3.12"
+requires-python = "==3.12.*"
 dependencies = [
     "albumentations",
     "scikit-learn",
-    "anomalib",
+    "anomalib==2.3.3",
     "onnx",
     "peft",
     "huggingface-hub",
@@ -15,7 +15,18 @@ dependencies = [
     "accelerate",
     "timm",
     "structlog",
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "onnxscript",
 ]
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm7.2"
 
 [dependency-groups]
 dev = [

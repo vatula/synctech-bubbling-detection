@@ -135,7 +135,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    from utils.logger import setup_logger
+    from src.utils.logger import setup_project
 
-    setup_logger()
+    setup_project()
     main()

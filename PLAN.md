@@ -19,6 +19,9 @@ This document serves as the authoritative, serialized execution plan for the AI 
     * _Deliverable:_ A script `verify_env.py`.
     * _Action:_ Assert `torch.cuda.is_available()` (mapped to HIP/ROCm).
     * _Action:_ Create a dummy linear PyTorch model, export it to ONNX (Opset 17 or 18), and compile it using `migraphx` to guarantee the compiler toolchain is functional before loading massive vision models.
+* **Task 0.3: Hardware Optimization & Precision Tuning**
+    * _Action:_ Perform micro-experiments to benchmark `torch.set_float32_matmul_precision` on AMD Matrix Cores.
+    * _Implementation:_ Enforce `high` precision via `src/utils/env.py` and `setup_project()` to utilize Tensor/Matrix Cores and eliminate hardware-utilization warnings.
 
 ## Phase 1: Core Infrastructure and Modular Dataset Engineering [COMPLETED]
 

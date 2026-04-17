@@ -8,9 +8,9 @@ import torch
 
 from src.data.loader import BubblingDataset
 from src.data.transforms import get_train_transforms
-from src.utils.logger import get_logger, setup_logger
+from src.utils.logger import get_logger, setup_project
 
-setup_logger()
+setup_project()
 log = get_logger(__name__)
 
 

@@ -29,6 +29,18 @@ def setup_logger() -> None:
     )
 
 
+def setup_project() -> None:
+    """Initializes both logging and environment-specific optimizations."""
+    setup_logger()
+    try:
+        from src.utils.env import setup_env
+
+        setup_env()
+    except (ImportError, ModuleNotFoundError):
+        # Fallback if env setup fails
+        pass
+
+
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Returns a structured logger instance."""
     return structlog.get_logger(name)

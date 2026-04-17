@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from utils.logger import get_logger, setup_logger
+from src.utils.logger import get_logger, setup_project
 
 # Import migraphx if available, otherwise define a stub
 try:
@@ -9,7 +9,7 @@ try:
 except ImportError:
     migraphx = None
 
-setup_logger()
+setup_project()
 log = get_logger("verify_env")
 
 
