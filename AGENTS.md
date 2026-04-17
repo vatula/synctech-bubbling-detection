@@ -41,9 +41,9 @@ For every prompt received, formulate your response as follows:
 - [x] **Task 1.3:** Write `tests/test_augmentations.py` asserting absence of destructive transforms (blur, warp, invert). *Wait for human test pass.*
 
 ### Phase 2: DINOv2 Feature Extraction and Hyperplane Optimization
-- [ ] **Task 2.1:** Write micro-experiment to load `dinov2_vitl14_reg` and verify `<CLS>` and spatial patch tensor shapes. *Run Ruff/Pyright.*
-- [ ] **Task 2.2:** Write `src/models/extractor.py` (L2-normalized `<CLS>` + avg-pooled spatial tokens in `.eval()` mode). *Run Ruff/Pyright.*
-- [ ] **Task 2.3:** Write `src/models/classifier.py` (LinearSVC with exactly 34-iteration LOOCV). Output terminal metrics logger via `structlog`. *Run Ruff/Pyright.*
+- [x] **Task 2.1:** Write micro-experiment to load `dinov2_vitl14_reg` and verify `<CLS>` and spatial patch tensor shapes. *Run Ruff/Pyright.*
+- [x] **Task 2.2:** Write `src/models/extractor.py` (L2-normalized `<CLS>` + avg-pooled spatial tokens in `.eval()` mode). *Run Ruff/Pyright.*
+- [x] **Task 2.3:** Write `src/models/classifier.py` (LinearSVC with exactly 34-iteration LOOCV). Output terminal metrics logger via `structlog`. *Run Ruff/Pyright.*
 
 ### Phase 3: Unsupervised Localization via Anomalib (Dinomaly Integration)
 - [ ] **Task 3.1:** Write `dinomaly_config.yaml` and dry-run datamodule script. *Verify correct 13-train/21-val split.*
