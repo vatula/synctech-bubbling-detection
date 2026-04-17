@@ -2,3 +2,4 @@
 /resources/assignment/hard-negatives-bubbling/*
 uv.lock
 .venv
+.idea

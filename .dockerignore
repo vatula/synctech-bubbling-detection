@@ -3,6 +3,7 @@ __pycache__/
 .git/
 .venv/
 .uv/
+.idea/
 outputs/
 logs/
 resources/assignment/
