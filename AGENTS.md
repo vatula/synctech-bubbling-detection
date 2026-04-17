@@ -9,44 +9,54 @@ You are operating as a subordinate engineering agent under a Senior MLOps Archit
 * **Amnesia & Context Checkpointing:** Upon the completion of each major Phase, you will provide a strictly formatted, 3-bullet-point summary of the established architecture. You will then drop internal focus on implementation details of previous phases to preserve context window capacity for the active phase.
 * **Modular Immutability:** Code goes into the `src/` package. Do not write monolithic execution scripts. 
 
-## 2. Interaction Protocol
+## 2. Code Quality, Typing & Telemetry Constraints
+You must treat static analysis as a hard blocker. Failure to meet these standards renders a task incomplete.
+
+* **Strict Static Analysis (`ruff`):** You must configure and adhere to aggressive `ruff` linting and formatting rules. At the end of every task, you must execute `ruff check --fix .` and `ruff format .` to automatically resolve violations. You cannot proceed to the next task until zero linting errors remain.
+* **Absolute Import Order:** All imports must be declared at the absolute top of the module. This will be enforced via Ruff's `I` (isort) ruleset.
+* **Rigorous Type Hinting (`pyright`):** Every function signature, return type, and complex variable declaration must be statically typed. You must execute `pyright` after every task. Zero typing errors are permitted.
+* **Telemetry over Print (`structlog`):** There is an absolute ban on the use of standard `print()` statements anywhere in the codebase. All runtime telemetry, state logging, and error tracking must be executed via structured `structlog` loggers with context-rich payloads.
+
+## 3. Interaction Protocol
 For every prompt received, formulate your response as follows:
 1. **State Acknowledgment:** State the current Task ID (e.g., "Executing Task 2.1").
 2. **Execution:** Provide the micro-experiment or module code.
-3. **Validation Gate:** Stop generating. Ask the human operator for the execution output or authorization to proceed to the next Task ID.
+3. **Static Analysis Gate:** Confirm execution of `ruff --fix` and `pyright`. State "Static Analysis: PASSED".
+4. **Validation Gate:** Stop generating. Ask the human operator for the execution output or authorization to proceed to the next Task ID.
 
 ---
 
-## 3. Serialized Execution Checklist
+## 4. Serialized Execution Checklist
 
 **Agent:** Read this checklist. Identify the lowest-numbered incomplete task. Execute it. Stop.
 
 ### Phase 0: System Verification & Project Scaffolding
 - [ ] **Task 0.1:** Scaffold project (`src/data`, `src/models`, `src/utils`, `tests`, `notebooks`) and output `uv` initialization commands/Dockerfile structure.
-- [ ] **Task 0.2:** Write `verify_env.py` to assert `torch.cuda.is_available()` and execute a dummy MIGraphX ONNX compilation. *Wait for human execution results.*
+- [ ] **Task 0.2:** Initialize strict `ruff.toml` (enforcing `I` and `UP` rulesets), configure `pyright`, and set up the base `structlog` configuration in `src/utils/logger.py`.
+- [ ] **Task 0.3:** Write `verify_env.py` utilizing `structlog` to assert `torch.cuda.is_available()` and execute a dummy MIGraphX ONNX compilation. *Wait for human execution results.*
 
 ### Phase 1: Core Infrastructure and Modular Dataset Engineering
-- [ ] **Task 1.1:** Write `src/data/loader.py` (Binary labeling, 13/21 imbalance handling).
-- [ ] **Task 1.2:** Write `src/data/transforms.py` (Albumentations: strictly D4 transforms + conservative jitter limit=0.1).
+- [ ] **Task 1.1:** Write `src/data/loader.py` (Binary labeling, 13/21 imbalance handling). *Run Ruff/Pyright.*
+- [ ] **Task 1.2:** Write `src/data/transforms.py` (Albumentations: strictly D4 transforms + conservative jitter limit=0.1). *Run Ruff/Pyright.*
 - [ ] **Task 1.3:** Write `tests/test_augmentations.py` asserting absence of destructive transforms (blur, warp, invert). *Wait for human test pass.*
 
 ### Phase 2: DINOv2 Feature Extraction and Hyperplane Optimization
-- [ ] **Task 2.1:** Write micro-experiment to load `dinov2_vitl14_reg` and verify `<CLS>` and spatial patch tensor shapes.
-- [ ] **Task 2.2:** Write `src/models/extractor.py` (L2-normalized `<CLS>` + avg-pooled spatial tokens in `.eval()` mode).
-- [ ] **Task 2.3:** Write `src/models/classifier.py` (LinearSVC with exactly 34-iteration LOOCV). Output terminal metrics logger.
+- [ ] **Task 2.1:** Write micro-experiment to load `dinov2_vitl14_reg` and verify `<CLS>` and spatial patch tensor shapes. *Run Ruff/Pyright.*
+- [ ] **Task 2.2:** Write `src/models/extractor.py` (L2-normalized `<CLS>` + avg-pooled spatial tokens in `.eval()` mode). *Run Ruff/Pyright.*
+- [ ] **Task 2.3:** Write `src/models/classifier.py` (LinearSVC with exactly 34-iteration LOOCV). Output terminal metrics logger via `structlog`. *Run Ruff/Pyright.*
 
 ### Phase 3: Unsupervised Localization via Anomalib (Dinomaly Integration)
 - [ ] **Task 3.1:** Write `dinomaly_config.yaml` and dry-run datamodule script. *Verify correct 13-train/21-val split.*
 - [ ] **Task 3.2:** Execute Anomalib training pipeline utilizing `dinov2_vitl14` backbone.
-- [ ] **Task 3.3:** Write `src/models/localization.py` to extract and overlay segmentation masks/bounding boxes/thermal heatmaps.
+- [ ] **Task 3.3:** Write `src/models/localization.py` to extract and overlay segmentation masks/bounding boxes/thermal heatmaps. *Run Ruff/Pyright.*
 
 ### Phase 4: Semantic Augmentation via VLM Distillation
-- [ ] **Task 4.1:** Write micro-experiment to load `Qwen2.5-VL-3B-Instruct` (BF16) and verify structured JSON reasoning on a single image.
+- [ ] **Task 4.1:** Write micro-experiment to load `Qwen2.5-VL-3B-Instruct` (BF16) and verify structured JSON reasoning on a single image. *Run Ruff/Pyright.*
 - [ ] **Task 4.2:** Output QLoRA configuration scripts (`r=8`, `lora_alpha=32`, target self-attention matrices).
-- [ ] **Task 4.3:** Write `src/models/distillation.py` (Contrastive loss orchestration between VLM Teacher and CNN/ViT-Tiny Student).
+- [ ] **Task 4.3:** Write `src/models/distillation.py` (Contrastive loss orchestration between VLM Teacher and CNN/ViT-Tiny Student). *Run Ruff/Pyright.*
 
 ### Phase 5: AMD MIGraphX Compilation & Unified CI/CD Verification
-- [ ] **Task 5.1:** Write ONNX serialization script for DINOv2 backbone, SVM, Student VLM, and Dinomaly model (dynamic batching axes).
+- [ ] **Task 5.1:** Write ONNX serialization script for DINOv2 backbone, SVM, Student VLM, and Dinomaly model (dynamic batching axes). *Run Ruff/Pyright.*
 - [ ] **Task 5.2:** Write MIGraphX compiler script targeting FP16 CDNA/RDNA3 acceleration. *Wait for microsecond latency profiling results.*
-- [ ] **Task 5.3:** Write `src/pipeline.py` (Unified entry point: routing image through compiled engines to unified JSON payload).
+- [ ] **Task 5.3:** Write `src/pipeline.py` (Unified entry point: routing image through compiled engines to unified JSON payload). *Run Ruff/Pyright.*
 - [ ] **Task 5.4:** Write and execute automated assertions against LOOCV iteration counts and latency thresholds.
