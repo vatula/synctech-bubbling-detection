@@ -1,2 +1,4 @@
 /resources/assignment/train-bubbling/*
 /resources/assignment/hard-negatives-bubbling/*
+uv.lock
+.venv
