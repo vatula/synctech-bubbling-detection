@@ -1,16 +1,26 @@
+from collections.abc import Sequence
+from os import cpu_count
 from pathlib import Path
-from typing import Any, cast
+from typing import TypedDict, cast
 
 import cv2
 import numpy as np
 import torch
-from anomalib.data import ImageBatch
+from anomalib.data import ImageBatch, PredictDataset
 from anomalib.engine import Engine
 from anomalib.models import Dinomaly
+from torch.utils.data import ConcatDataset, DataLoader
 
 from src.utils.logger import get_logger
 
 log = get_logger("localization")
+
+
+class LocalizationOutput(TypedDict):
+    heatmap: np.ndarray
+    mask: np.ndarray
+    boxes: list[list[int]]
+    score: float
 
 
 class AnomalyLocalizer:
@@ -23,6 +33,8 @@ class AnomalyLocalizer:
         self,
         checkpoint_path: str | Path,
         device: str = "cuda",
+        predict_batch_size: int = 8,
+        predict_num_workers: int | None = None,
     ) -> None:
         """
         Initializes the localizer with a trained checkpoint.
@@ -31,12 +43,18 @@ class AnomalyLocalizer:
             checkpoint_path: Path to the model checkpoint (.ckpt).
             device: Device to run inference on.
         """
-        self.checkpoint_path = Path(checkpoint_path)
+        self.checkpoint_path = Path(checkpoint_path).expanduser().resolve()
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
+        self.predict_batch_size = predict_batch_size
+        self.predict_num_workers = self._resolve_default_num_workers(
+            configured_workers=predict_num_workers
+        )
         log.info(
             "Initializing AnomalyLocalizer",
             checkpoint=str(self.checkpoint_path),
             device=self.device,
+            predict_batch_size=self.predict_batch_size,
+            predict_num_workers=self.predict_num_workers,
         )
 
         # Load model and engine
@@ -51,7 +69,159 @@ class AnomalyLocalizer:
         self._encoder_name = self._resolve_encoder_name()
 
         # Engine is needed for predict
-        self.engine = Engine(devices=1 if self.device.type == "cuda" else 0)
+        self.engine = Engine(
+            devices=1 if self.device.type == "cuda" else "auto",
+            logger=False,
+            enable_progress_bar=False,
+            enable_model_summary=False,
+        )
+
+    @staticmethod
+    def _resolve_default_num_workers(configured_workers: int | None) -> int:
+        if configured_workers is not None:
+            if configured_workers < 0:
+                msg = "predict_num_workers must be non-negative"
+                raise ValueError(msg)
+            return configured_workers
+
+        available = max(1, (cpu_count() or 1) - 1)
+        return min(8, available)
+
+    @staticmethod
+    def _build_output(
+        anomaly_map: np.ndarray, threshold: float, score: float
+    ) -> LocalizationOutput:
+        normalized_map = np.clip(anomaly_map, 0.0, 1.0)
+
+        heatmap = cv2.applyColorMap(
+            (normalized_map * 255).astype(np.uint8), cv2.COLORMAP_JET
+        )
+
+        mask = (normalized_map > threshold).astype(np.uint8) * 255
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        boxes: list[list[int]] = []
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+            boxes.append([x, y, x + w, y + h])
+
+        return {
+            "heatmap": heatmap,
+            "mask": mask,
+            "boxes": boxes,
+            "score": score,
+        }
+
+    def _parse_prediction_batch(
+        self, predictions: ImageBatch, threshold: float
+    ) -> list[LocalizationOutput]:
+        anomaly_map_tensor = predictions.anomaly_map
+        if anomaly_map_tensor is None:
+            msg = "Anomaly map is None"
+            raise ValueError(msg)
+
+        pred_score_tensor = predictions.pred_score
+        if pred_score_tensor is None:
+            msg = "Prediction score is None"
+            raise ValueError(msg)
+
+        anomaly_map_tensor = anomaly_map_tensor.detach().cpu()
+        pred_score_tensor = pred_score_tensor.detach().cpu()
+
+        if anomaly_map_tensor.ndim == 2:
+            anomaly_map_tensor = anomaly_map_tensor.unsqueeze(0)
+        if pred_score_tensor.ndim == 0:
+            pred_score_tensor = pred_score_tensor.unsqueeze(0)
+
+        anomaly_maps = anomaly_map_tensor.numpy()
+        pred_scores = pred_score_tensor.numpy()
+
+        outputs: list[LocalizationOutput] = []
+        for index in range(anomaly_maps.shape[0]):
+            outputs.append(
+                self._build_output(
+                    anomaly_map=anomaly_maps[index],
+                    threshold=threshold,
+                    score=float(pred_scores[index]),
+                )
+            )
+
+        return outputs
+
+    def _create_predict_dataloader(
+        self,
+        image_paths: Sequence[Path],
+        batch_size: int,
+        num_workers: int,
+    ) -> DataLoader[ImageBatch]:
+        if batch_size <= 0:
+            msg = "batch_size must be positive"
+            raise ValueError(msg)
+        if num_workers < 0:
+            msg = "num_workers must be non-negative"
+            raise ValueError(msg)
+
+        datasets = [PredictDataset(path=image_path) for image_path in image_paths]
+        dataset = datasets[0] if len(datasets) == 1 else ConcatDataset(datasets)
+        collate_fn = datasets[0].collate_fn
+        return DataLoader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            collate_fn=collate_fn,
+            pin_memory=self.device.type == "cuda",
+            persistent_workers=num_workers > 0,
+        )
+
+    def process_images(
+        self,
+        image_paths: Sequence[str | Path],
+        threshold: float = 0.5,
+        batch_size: int | None = None,
+        num_workers: int | None = None,
+    ) -> list[LocalizationOutput]:
+        resolved_paths = [
+            Path(image_path).expanduser().resolve() for image_path in image_paths
+        ]
+        if not resolved_paths:
+            msg = "image_paths cannot be empty"
+            raise ValueError(msg)
+
+        effective_batch_size = batch_size or self.predict_batch_size
+        effective_num_workers = (
+            self.predict_num_workers if num_workers is None else num_workers
+        )
+
+        dataloader = self._create_predict_dataloader(
+            image_paths=resolved_paths,
+            batch_size=effective_batch_size,
+            num_workers=effective_num_workers,
+        )
+        results = self.engine.predict(
+            model=self.model,
+            dataloaders=dataloader,
+            return_predictions=True,
+            ckpt_path=None,
+        )
+
+        if not results:
+            msg = "No results returned from prediction"
+            raise RuntimeError(msg)
+
+        outputs: list[LocalizationOutput] = []
+        for batch in results:
+            outputs.extend(
+                self._parse_prediction_batch(
+                    predictions=cast(ImageBatch, batch),
+                    threshold=threshold,
+                )
+            )
+
+        if len(outputs) != len(resolved_paths):
+            msg = "Prediction output count does not match input image count"
+            raise RuntimeError(msg)
+
+        return outputs
 
     def _resolve_encoder_name(self) -> str:
         candidate_fields = ("backbone", "encoder_name", "encoder", "backbone_name")
@@ -84,8 +254,10 @@ class AnomalyLocalizer:
         }
 
     def process_image(
-        self, image_path: str | Path, threshold: float = 0.5
-    ) -> dict[str, Any]:
+        self,
+        image_path: str | Path,
+        threshold: float = 0.5,
+    ) -> LocalizationOutput:
         """
         Processes a single image and extracts localization data.
 
@@ -96,59 +268,12 @@ class AnomalyLocalizer:
         Returns:
             Dictionary containing 'heatmap', 'mask', 'boxes', and 'score'.
         """
-        # Engine.predict returns a list of results (usually one per batch)
-        results = self.engine.predict(
-            model=self.model,
-            data_path=str(image_path),
-            return_predictions=True,
-            ckpt_path=str(self.checkpoint_path),
-        )
-
-        # results is typically a list of ImageBatch
-        if not results:
-            msg = "No results returned from prediction"
-            raise RuntimeError(msg)
-
-        predictions = cast(ImageBatch, results[0])
-
-        # anomaly_map is typically (1, H, W)
-        anomaly_map_tensor = predictions.anomaly_map
-        if anomaly_map_tensor is None:
-            msg = "Anomaly map is None"
-            raise ValueError(msg)
-
-        anomaly_map = anomaly_map_tensor.squeeze().cpu().numpy()  # (H, W)
-
-        pred_score_tensor = predictions.pred_score
-        if pred_score_tensor is None:
-            msg = "Prediction score is None"
-            raise ValueError(msg)
-
-        pred_score = float(pred_score_tensor.item())
-
-        normalized_map = np.clip(anomaly_map, 0.0, 1.0)
-
-        # Normalize heatmap for visualization [0, 255]
-        heatmap = cv2.applyColorMap(
-            (normalized_map * 255).astype(np.uint8), cv2.COLORMAP_JET
-        )
-
-        # Generate binary mask
-        mask = (normalized_map > threshold).astype(np.uint8) * 255
-
-        # Extract bounding boxes from mask
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        boxes: list[list[int]] = []
-        for cnt in contours:
-            x, y, w, h = cv2.boundingRect(cnt)
-            boxes.append([x, y, x + w, y + h])
-
-        return {
-            "heatmap": heatmap,
-            "mask": mask,
-            "boxes": boxes,
-            "score": pred_score,
-        }
+        return self.process_images(
+            [image_path],
+            threshold=threshold,
+            batch_size=1,
+            num_workers=0,
+        )[0]
 
     @staticmethod
     def _map_boxes_to_target_size(

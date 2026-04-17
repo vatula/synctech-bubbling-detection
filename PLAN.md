@@ -104,6 +104,7 @@ This document serves as the authoritative, serialized execution plan for the AI 
     * Acceptance clause: the report is incomplete unless the provenance block is present in both `phase5_consolidated_report.json` and `phase5_consolidated_report.md`.
 * **Task 5.3: Gate A - Native Runtime Validation (Non-Containerized)**
     * Validate that the application phase runs flawlessly on the local host environment without `docker` or `docker compose`.
+    * Require clean evaluation runtime logs: no unresolved warning/advisory noise outside explicitly allowlisted warning-hygiene telemetry.
     * For any failure, perform root-cause analysis and resolve the underlying issue before proceeding.
 * **Task 5.4: Gate B - Container Runtime Validation (Docker)**
     * Validate the same end-to-end workload in the containerized environment using `docker compose` and `docker`.
@@ -125,4 +126,5 @@ This document serves as the authoritative, serialized execution plan for the AI 
 * **Task 6.4: Final Requirement Verification**
     * Execute the automated test suite against `TEST_REQUIREMENTS.md`.
     * Programmatically assert LOOCV executed exactly 34 times.
+    * Enforce warning-budget assertions for evaluation output (known warning patterns must be suppressed or explicitly allowlisted).
     * Verify edge-deployment latency and E2E fault tolerance.

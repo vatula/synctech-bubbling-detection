@@ -20,6 +20,7 @@ from src.models.distillation import build_student
 from src.models.extractor import FeatureExtractor
 from src.models.localization import AnomalyLocalizer
 from src.utils.logger import get_logger, setup_project
+from src.utils.warning_hygiene import install_warning_hygiene
 
 log = get_logger("evaluation")
 
@@ -256,19 +257,27 @@ def evaluate_localization(
     nominal_scores: list[float] = []
     bubbling_scores: list[float] = []
 
-    for sample in samples:
-        started = time.perf_counter()
-        output = localizer.process_image(sample.path, threshold=score_threshold)
-        finished = time.perf_counter()
+    image_paths = [sample.path for sample in samples]
+    started = time.perf_counter()
+    outputs = localizer.process_images(image_paths, threshold=score_threshold)
+    finished = time.perf_counter()
 
+    if len(outputs) != len(samples):
+        msg = "Localization output count mismatch"
+        raise RuntimeError(msg)
+
+    total_latency_ms = (finished - started) * 1000.0
+    per_sample_latency_ms = total_latency_ms / float(len(samples))
+
+    for sample, output in zip(samples, outputs, strict=True):
         score = float(output["score"])
-        mask = cast(np.ndarray, output["mask"])
-        boxes = cast(list[list[int]], output["boxes"])
+        mask = output["mask"]
+        boxes = output["boxes"]
 
         y_true.append(sample.label)
         y_score.append(score)
         y_pred.append(1 if score >= score_threshold else 0)
-        latencies_ms.append((finished - started) * 1000.0)
+        latencies_ms.append(per_sample_latency_ms)
         box_counts.append(float(len(boxes)))
 
         mask_ratio = float(np.count_nonzero(mask)) / float(mask.size)
@@ -470,6 +479,7 @@ def write_report(report: ConsolidatedReport) -> tuple[Path, Path]:
 
 
 def main() -> None:
+    install_warning_hygiene()
     samples = _load_samples()
     runtime_context = _collect_runtime_context()
     inference_context = _collect_inference_context(samples=samples)

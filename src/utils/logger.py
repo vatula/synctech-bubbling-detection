@@ -4,6 +4,8 @@ from typing import Any
 
 import structlog
 
+from src.utils.warning_hygiene import install_warning_hygiene
+
 
 def setup_logger() -> None:
     """Configures structlog for the project."""
@@ -31,6 +33,7 @@ def setup_logger() -> None:
 
 def setup_project() -> None:
     """Initializes both logging and environment-specific optimizations."""
+    install_warning_hygiene()
     setup_logger()
     try:
         from src.utils.env import setup_env

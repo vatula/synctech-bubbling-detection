@@ -16,6 +16,7 @@ You must treat static analysis as a hard blocker. Failure to meet these standard
 * **Absolute Import Order:** All imports must be declared at the absolute top of the module. This will be enforced via Ruff's `I` (isort) ruleset.
 * **Rigorous Type Hinting (`pyright`):** Every function signature, return type, and complex variable declaration must be statically typed. You must execute `pyright` after every task. Zero typing errors are permitted.
 * **Telemetry over Print (`structlog`):** There is an absolute ban on the use of standard `print()` statements anywhere in the codebase. All runtime telemetry, state logging, and error tracking must be executed via structured `structlog` loggers with context-rich payloads.
+* **Warning Hygiene Gate:** During evaluation runs, capture and classify terminal warnings. Repeated dependency/deprecation/configuration warnings are actionable defects unless explicitly allowlisted by the warning-hygiene policy.
 
 ## 3. Interaction Protocol
 For every prompt received, formulate your response as follows:
