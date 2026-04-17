@@ -9,8 +9,9 @@ This document serves as the authoritative, serialized execution plan for the AI 
 **Objective:** Establish the foundational Python computational environments, algorithmically handle the severe 13/21 inverted class imbalance, and implement strictly controlled, non-destructive geometric augmentations to preserve specular highlight topologies.
 
 * **Task 1.1: Environment and Dependency Initialization**
-    * Initialize a strict, isolated virtual environment (venv or conda).
-    * Install core dependencies via pip: `torch`, `torchvision`, `albumentations`, `scikit-learn`, `anomalib`, `onnx`, `tensorrt`, and `peft` (for QLoRA).
+    * Initialize a strict, isolated virtual environment using `uv` within the ROCm-optimized container.
+    * Base image: `rocm/pytorch:rocm7.2.2_ubuntu24.04_py3.12_pytorch_release_2.10.0`.
+    * Install core dependencies via `uv pip`: `torch`, `torchvision` (provided by base), `albumentations`, `scikit-learn`, `anomalib`, `onnx`, `migraphx`, `peft`, and `timm`.
 * **Task 1.2: Custom DataLoader Construction**
     * Develop a bespoke PyTorch `Dataset` class mapping natively to the provided directory structure.
     * Implement binary class labeling logic (0: Nominal Board, 1: Bubbling Defect).
@@ -26,8 +27,8 @@ This document serves as the authoritative, serialized execution plan for the AI 
 **Objective:** Leverage the pre-trained ViT-L/14-registers foundation model to extract high-dimensional dense visual representations, subsequently fitting a statistically rigorous linear Support Vector Machine.
 
 * **Task 2.1: Foundation Backbone Instantiation**
-    * Load the `dinov2_vitl14_reg` model strictly via the `torch.hub.load` interface.
-    * Transfer the model weights securely to the available CUDA device.
+    * Load the `dinov2_vitl14_reg` model strictly via the `torch.hub.load` interface (now compatible with Python 3.12).
+    * Transfer the model weights securely to the available ROCm (HIP) device.
     * Enforce `.eval()` mode and strictly wrap all forward-pass inference scripts within a `with torch.no_grad():` context manager to permanently freeze the computational graph and eliminate gradient tracking VRAM overhead.
 * **Task 2.2: High-Dimensional Feature Vector Engineering**
     * Iterate the augmented dataloader iteratively through the frozen DINOv2 backbone.
@@ -66,10 +67,10 @@ This document serves as the authoritative, serialized execution plan for the AI 
 
 **Objective:** Address the identified lack of semantic reasoning and computational scalability in the original roadmap by fine-tuning Qwen2.5-VL and establishing a contrastive student-teacher knowledge transfer loop.
 
-* **Task 4.1: QLoRA Parameter Configuration for Qwen2.5-VL**
-    * Load the `Qwen/Qwen2.5-VL-3B-Instruct` model utilizing 4-bit normal float (`nf4`) quantization.
-    * Configure the LoRA adapter parameters: `r=4`, `lora_alpha=16`.
-    * Strictly target the self-attention matrices: `q_proj`, `k_proj`, `v_proj`.
+* **Task 4.1: LoRA Parameter Configuration for Qwen2.5-VL**
+    * Load the `Qwen/Qwen2.5-VL-3B-Instruct` model in BF16/FP16 precision (optimized for RX 7900 XTX 24GB VRAM).
+    * Configure the LoRA adapter parameters: `r=8`, `lora_alpha=32` (increased for semantic depth).
+    * Strictly target the self-attention matrices: `q_proj`, `k_proj`, `v_proj`, and `o_proj`.
 * **Task 4.2: Structured Output Fine-Tuning**
     * Engineer a Pythonic distillation loop where the VLM (Teacher) infers across the full dataset to generate continuous soft labels and intermediate embedding representations.
     * Initialize a micro-scale CNN or ViT-Tiny (Student).
@@ -77,14 +78,14 @@ This document serves as the authoritative, serialized execution plan for the AI 
 
 ## Phase 5: Hardware Compilation and CI/CD Verification
 
-**Objective:** Translate the high-level Python mathematical graphs into ultra-fast executable engines and automatically verify against all operational test constraints.
+**Objective:** Translate the high-level Python mathematical graphs into ultra-fast executable engines using AMD MIGraphX and automatically verify against all operational test constraints.
 
 * **Task 5.1: ONNX Graph Serialization**
     * Trace and export the frozen DINOv2 backbone and the fitted SVM decision logic into the standard ONNX format, explicitly configuring dynamic batching axes.
     * Export the fully trained Dinomaly Anomalib model via the integrated CLI command: `anomalib export --export_type ONNX`.
-* **Task 5.2: TensorRT FP16 Optimization Calibration**
-    * Parse the serialized ONNX graphs utilizing the `trtexec` compiler.
-    * Apply the `--fp16` flag to calibrate the network for half-precision execution, directly targeting Tensor Core matrix multiplication acceleration.
+* **Task 5.2: AMD MIGraphX Optimization and Calibration**
+    * Parse the serialized ONNX graphs utilizing the `migraphx` compiler.
+    * Apply FP16 quantization to calibrate the network for half-precision execution, directly targeting AMD Matrix Core (CDNA/RDNA3) acceleration.
     * Benchmark and verify that inference latency falls within the mandated microsecond threshold.
 * **Task 5.3: Requirement Verification and Assertion Validation**
     * Initialize and execute automated test suites strictly mapped against `TEST_REQUIREMENTS.md`.

@@ -1,0 +1,18 @@
+services:
+  training:
+    build:
+      context: .
+      network: host
+    container_name: bubbling-detection-training
+    volumes:
+      - .:/app
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    privileged: true
+    shm_size: '8gb'
+    environment:
+      - HIP_VISIBLE_DEVICES=0
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0 # Navi 31 (7900 XTX/XT)
+    stdin_open: true
+    tty: true

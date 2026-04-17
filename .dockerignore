@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.git/
+.venv/
+.uv/
+outputs/
+logs/
+resources/assignment/

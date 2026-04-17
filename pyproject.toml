@@ -1,0 +1,21 @@
+[project]
+name = "synctech-bubbling-detection"
+version = "0.1.0"
+description = "Bubbling defect detection using DINOv2 and Anomalib on ROCm"
+authors = [{ name = "Bogda", email = "bogdan.watula@gmail.com" }]
+requires-python = ">=3.12"
+dependencies = [
+    "albumentations",
+    "scikit-learn",
+    "anomalib",
+    "onnx",
+    "peft",
+    "huggingface-hub",
+    "transformers",
+    "accelerate",
+    "timm",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
