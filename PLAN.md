@@ -87,20 +87,37 @@ This document serves as the authoritative, serialized execution plan for the AI 
     * Initialize the Student (micro-scale CNN or ViT-Tiny).
     * Train the Student to regress toward the Teacher's representations using a contrastive distillation loss function.
 
-## Phase 5: AMD MIGraphX Compilation & Unified CI/CD Verification
+## Phase 5: Full-Pipeline Training, Testing, and Validation Reporting
 
-**Objective:** Translate the high-level Python graphs into ultra-fast FP16 executable engines and run end-to-end mission-critical assertions.
+**Objective:** Fully train, test, and validate the complete pipeline before edge-device optimization, with mandatory native and container gate passes.
 
-* **Task 5.1: ONNX Graph Serialization**
+* **Task 5.1: End-to-End Training Execution**
+    * Execute the complete training workflow across SVM classification, Dinomaly localization, and VLM distillation modules.
+    * Persist all trained artifacts and checkpoints required for validation and downstream export.
+* **Task 5.2: Comprehensive Testing and Performance Reporting**
+    * Run the full evaluation suite for classification, localization, and semantic outputs.
+    * Generate a consolidated report in `results/` with per-stage and end-to-end metrics (accuracy/precision/recall/AUROC, localization quality, and latency).
+* **Task 5.3: Gate A - Native Runtime Validation (Non-Containerized)**
+    * Validate that the application phase runs flawlessly on the local host environment without `docker` or `docker compose`.
+    * For any failure, perform root-cause analysis and resolve the underlying issue before proceeding.
+* **Task 5.4: Gate B - Container Runtime Validation (Docker)**
+    * Validate the same end-to-end workload in the containerized environment using `docker compose` and `docker`.
+    * Use Docker build cache and layer reuse wherever appropriate to accelerate builds and execution while preserving reproducibility.
+
+## Phase 6: AMD MIGraphX Compilation & Unified CI/CD Verification
+
+**Objective:** Translate the validated Python graphs into ultra-fast FP16 executable engines and run edge-deployment mission-critical assertions.
+
+* **Task 6.1: ONNX Graph Serialization**
     * Trace and export the frozen DINOv2 backbone, the fitted SVM logic, and the Student semantic model to ONNX. Explicitly define dynamic batching axes.
     * Export the fully trained Dinomaly model using `anomalib export --export_type ONNX`.
-* **Task 5.2: AMD MIGraphX Optimization and Calibration**
+* **Task 6.2: AMD MIGraphX Optimization and Calibration**
     * Parse the serialized ONNX graphs utilizing the `migraphx` compiler.
     * Apply FP16 quantization to calibrate the network, directly targeting AMD Matrix Core (CDNA/RDNA3) acceleration.
     * _Micro-Experiment:_ Profile a single compiled graph to verify inference latency falls within the microsecond threshold.
-* **Task 5.3: Unified Inference API (`src/pipeline.py`)**
+* **Task 6.3: Unified Inference API (`src/pipeline.py`)**
     * Create a single entry point class that ingests an image, routes it through the compiled MIGraphX engines (SVM → Dinomaly → Distilled VLM), and outputs a unified JSON response payload (Classification + Bounding Box + Semantic Text).
-* **Task 5.4: Final Requirement Verification**
+* **Task 6.4: Final Requirement Verification**
     * Execute the automated test suite against `TEST_REQUIREMENTS.md`.
     * Programmatically assert LOOCV executed exactly 34 times.
     * Verify edge-deployment latency and E2E fault tolerance.

@@ -56,8 +56,14 @@ For every prompt received, formulate your response as follows:
 - [x] **Task 4.2:** Output QLoRA configuration scripts (`r=8`, `lora_alpha=32`, target self-attention matrices).
 - [x] **Task 4.3:** Write `src/models/distillation.py` (Contrastive loss orchestration between VLM Teacher and CNN/ViT-Tiny Student). *Run Ruff/Pyright.*
 
-### Phase 5: AMD MIGraphX Compilation & Unified CI/CD Verification
-- [ ] **Task 5.1:** Write ONNX serialization script for DINOv2 backbone, SVM, Student VLM, and Dinomaly model (dynamic batching axes). *Run Ruff/Pyright.*
-- [ ] **Task 5.2:** Write MIGraphX compiler script targeting FP16 CDNA/RDNA3 acceleration. *Wait for microsecond latency profiling results.*
-- [ ] **Task 5.3:** Write `src/pipeline.py` (Unified entry point: routing image through compiled engines to unified JSON payload). *Run Ruff/Pyright.*
-- [ ] **Task 5.4:** Write and execute automated assertions against LOOCV iteration counts and latency thresholds.
+### Phase 5: Full-Pipeline Training, Testing, and Validation Reporting
+- [ ] **Task 5.1:** Execute end-to-end training for classifier, localization, and distillation components; persist artifacts/checkpoints. *Run Ruff/Pyright.*
+- [ ] **Task 5.2:** Run comprehensive evaluation and generate a consolidated performance report in `results/`. *Include classification/localization/semantic + latency metrics.*
+- [ ] **Task 5.3:** Validate full application phase on local host (no `docker`/`docker compose`). *Gate pass required; perform root-cause analysis for any failure.*
+- [ ] **Task 5.4:** Validate full application phase in container environment using `docker compose` and `docker`. *Use Docker cache/layer reuse where appropriate.*
+
+### Phase 6: AMD MIGraphX Compilation & Unified CI/CD Verification
+- [ ] **Task 6.1:** Write ONNX serialization script for DINOv2 backbone, SVM, Student VLM, and Dinomaly model (dynamic batching axes). *Run Ruff/Pyright.*
+- [ ] **Task 6.2:** Write MIGraphX compiler script targeting FP16 CDNA/RDNA3 acceleration. *Wait for microsecond latency profiling results.*
+- [ ] **Task 6.3:** Write `src/pipeline.py` (Unified entry point: routing image through compiled engines to unified JSON payload). *Run Ruff/Pyright.*
+- [ ] **Task 6.4:** Write and execute automated assertions against LOOCV iteration counts and latency thresholds.
