@@ -44,6 +44,14 @@ WARNING_FILTER_RULES: Final[tuple[WarningFilterRule, ...]] = (
         source=r"lightning/pytorch/trainer/connectors/data_connector\.py",
     ),
     WarningFilterRule(
+        key="lightning_ambiguous_batch_size",
+        message_regex=(
+            r"Trying to infer the `batch_size` from an ambiguous collection\..*"
+        ),
+        category=UserWarning,
+        source=r"lightning/pytorch/utilities/data\.py",
+    ),
+    WarningFilterRule(
         key="multiprocessing_fork_deprecation",
         message_regex=(
             r"This process .* is multi-threaded, use of fork\(\) may lead "
@@ -69,6 +77,10 @@ WARNING_FILTER_RULES: Final[tuple[WarningFilterRule, ...]] = (
 _STREAM_NOISE_PATTERNS: Final[tuple[tuple[str, str], ...]] = (
     ("startup_null_file_hint", r"^\(null\): No such file or directory$"),
     (
+        "openvino_optional_backend",
+        r"OpenVINO is possibly not installed in the environment\..*",
+    ),
+    (
         "lightning_cloud_tip",
         (
             r"Tip: For seamless cloud logging and experiment tracking, "
@@ -82,6 +94,14 @@ _STREAM_NOISE_PATTERNS: Final[tuple[tuple[str, str], ...]] = (
     (
         "leafspec_deprecation_text",
         r"`isinstance\(treespec, LeafSpec\)` is deprecated.*",
+    ),
+    (
+        "lightning_ambiguous_batch_size_text",
+        r"Trying to infer the `batch_size` from an ambiguous collection\..*",
+    ),
+    (
+        "dinov2_mlp_ffn_fallback_text",
+        r"^using MLP layer as FFN$",
     ),
 )
 
@@ -120,7 +140,9 @@ def _report_allowlisted_pattern_once(key: str, message: str) -> None:
 
 
 def _warning_matches_allowlist(
-    message: str, category: type[Warning], filename: str
+    message: str,
+    category: type[Warning],
+    filename: str,
 ) -> str | None:
     for rule in WARNING_FILTER_RULES:
         if not issubclass(category, rule.category):

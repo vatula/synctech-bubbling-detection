@@ -21,6 +21,7 @@ def test_install_warning_hygiene_registers_filters() -> None:
     rule_keys = {rule.key for rule in get_warning_filter_rules()}
     assert "xformers_fallback" in rule_keys
     assert "lightning_pytree_deprecation" in rule_keys
+    assert "lightning_ambiguous_batch_size" in rule_keys
     assert "predict_dataloader_workers_advisory" in rule_keys
     assert isinstance(sys.stdout, WarningHygieneStream)
     assert isinstance(sys.stderr, WarningHygieneStream)
