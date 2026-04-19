@@ -58,4 +58,4 @@ services:
     command: >
       bash -lc "set -euo pipefail;
       chmod +x ./cleanup.sh;
-      ./cleanup.sh;
+      ./cleanup.sh;"
