@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -17,6 +18,7 @@ log = get_logger("retrain")
 
 _FALLBACK_FREE_GIB_ENV = "DINOMALY_FALLBACK_FREE_GIB"
 _FAILFAST_FREE_GIB_ENV = "DINOMALY_FAILFAST_FREE_GIB"
+_DISTILLATION_EPOCHS_ENV = "DISTILLATION_EPOCHS"
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,29 @@ def _read_numeric_setting(env_key: str, default_value: float) -> float:
     if value <= 0:
         msg = f"{env_key} must be greater than 0, got {value}"
         raise RuntimeError(msg)
+    return value
+
+
+def _read_positive_int_setting(env_key: str, default_value: int) -> int:
+    raw_value = os.getenv(env_key)
+    if raw_value is None:
+        return default_value
+    try:
+        value = int(raw_value)
+    except ValueError as error:
+        msg = f"Invalid integer value for {env_key}: {raw_value!r}"
+        raise RuntimeError(msg) from error
+    if value <= 0:
+        msg = f"{env_key} must be greater than 0, got {value}"
+        raise RuntimeError(msg)
+    return value
+
+
+def _positive_int(raw_value: str) -> int:
+    value = int(raw_value)
+    if value <= 0:
+        msg = "Value must be a positive integer"
+        raise argparse.ArgumentTypeError(msg)
     return value
 
 
@@ -230,6 +255,33 @@ def build_anomalib_command(config_path: Path) -> list[str]:
     ]
 
 
+def build_distillation_command(
+    distillation_epochs: int,
+    teacher_device: str | None = None,
+) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "src.models.distillation",
+        "--epochs",
+        str(distillation_epochs),
+    ]
+    if teacher_device is not None:
+        command.extend(["--teacher-device", teacher_device])
+    return command
+
+
+def _signal_name_from_return_code(return_code: int) -> str | None:
+    if return_code >= 0:
+        return None
+
+    signal_number = -return_code
+    try:
+        return signal.Signals(signal_number).name
+    except ValueError:
+        return f"SIG{signal_number}"
+
+
 def _run_streaming_command(command: list[str], step_name: str) -> None:
     log.info("Starting retrain step", step=step_name, command=" ".join(command))
     started = time.monotonic()
@@ -250,6 +302,14 @@ def _run_streaming_command(command: list[str], step_name: str) -> None:
     return_code = process.wait()
     elapsed_seconds = time.monotonic() - started
     if return_code != 0:
+        signal_name = _signal_name_from_return_code(return_code)
+        log.error(
+            "Retrain step failed",
+            step=step_name,
+            return_code=return_code,
+            signal=signal_name,
+            duration_seconds=round(elapsed_seconds, 3),
+        )
         raise subprocess.CalledProcessError(returncode=return_code, cmd=command)
     log.info(
         "Retrain step completed",
@@ -258,7 +318,33 @@ def _run_streaming_command(command: list[str], step_name: str) -> None:
     )
 
 
-def parse_args() -> argparse.Namespace:
+def run_distillation_step(distillation_epochs: int) -> None:
+    initial_command = build_distillation_command(
+        distillation_epochs=distillation_epochs,
+    )
+    try:
+        _run_streaming_command(command=initial_command, step_name="distillation")
+        return
+    except subprocess.CalledProcessError as error:
+        if error.returncode != -int(signal.SIGSEGV):
+            raise
+
+    fallback_command = build_distillation_command(
+        distillation_epochs=distillation_epochs,
+        teacher_device="cpu",
+    )
+    log.warning(
+        "Distillation exited with SIGSEGV; retrying on CPU teacher device",
+        first_command=" ".join(initial_command),
+        fallback_command=" ".join(fallback_command),
+    )
+    _run_streaming_command(
+        command=fallback_command,
+        step_name="distillation_cpu_fallback",
+    )
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Full retraining pipeline orchestrator"
     )
@@ -268,7 +354,16 @@ def parse_args() -> argparse.Namespace:
         default=Path("dinomaly_config.yaml"),
         help="Path to Dinomaly training configuration file",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--distillation-epochs",
+        type=_positive_int,
+        default=_read_positive_int_setting(_DISTILLATION_EPOCHS_ENV, default_value=1),
+        help=(
+            "Number of distillation epochs to run. "
+            "Defaults to DISTILLATION_EPOCHS env var if set, otherwise 1."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def main() -> None:
@@ -278,6 +373,7 @@ def main() -> None:
     log.info(
         "Starting full retraining pipeline",
         dinomaly_config=str(args.dinomaly_config),
+        distillation_epochs=args.distillation_epochs,
     )
     _run_streaming_command(
         command=[sys.executable, "-m", "src.models.classifier"],
@@ -290,10 +386,7 @@ def main() -> None:
         step_name="dinomaly",
     )
 
-    _run_streaming_command(
-        command=[sys.executable, "-m", "src.models.distillation"],
-        step_name="distillation",
-    )
+    run_distillation_step(distillation_epochs=args.distillation_epochs)
     log.info("Retraining pipeline completed")
 
 

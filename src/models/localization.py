@@ -1,4 +1,6 @@
+import math
 from collections.abc import Sequence
+from numbers import Real
 from os import cpu_count
 from pathlib import Path
 from typing import TypedDict, cast
@@ -86,6 +88,73 @@ class AnomalyLocalizer:
 
         available = max(1, (cpu_count() or 1) - 1)
         return min(8, available)
+
+    @staticmethod
+    def _to_finite_threshold(raw_threshold: object) -> float | None:
+        threshold_value = getattr(raw_threshold, "value", raw_threshold)
+
+        if isinstance(threshold_value, torch.Tensor):
+            if threshold_value.numel() != 1:
+                return None
+            resolved = float(threshold_value.detach().cpu().item())
+        elif isinstance(threshold_value, Real):
+            resolved = float(threshold_value)
+        else:
+            return None
+
+        if not math.isfinite(resolved):
+            return None
+
+        return resolved
+
+    def get_calibrated_threshold(self) -> float:
+        post_processor = getattr(self.model, "post_processor", None)
+        candidates = (
+            (
+                "post_processor.pixel_threshold",
+                getattr(post_processor, "pixel_threshold", None),
+            ),
+            (
+                "post_processor.image_threshold",
+                getattr(post_processor, "image_threshold", None),
+            ),
+            (
+                "post_processor._pixel_threshold",
+                getattr(post_processor, "_pixel_threshold", None),
+            ),
+            (
+                "post_processor._image_threshold",
+                getattr(post_processor, "_image_threshold", None),
+            ),
+            ("model.pixel_threshold", getattr(self.model, "pixel_threshold", None)),
+            ("model.image_threshold", getattr(self.model, "image_threshold", None)),
+        )
+
+        for source, raw_threshold in candidates:
+            resolved = self._to_finite_threshold(raw_threshold)
+            if resolved is None:
+                continue
+
+            log.info(
+                "Using calibrated localization threshold",
+                source=source,
+                threshold=resolved,
+            )
+            return resolved
+
+        msg = "Unable to resolve calibrated localization threshold from model state"
+        raise RuntimeError(msg)
+
+    def _resolve_threshold(self, threshold: float | None) -> float:
+        if threshold is None:
+            return self.get_calibrated_threshold()
+
+        resolved = self._to_finite_threshold(threshold)
+        if resolved is None:
+            msg = "threshold must be a finite scalar value"
+            raise ValueError(msg)
+
+        return resolved
 
     @staticmethod
     def _build_output(
@@ -176,7 +245,7 @@ class AnomalyLocalizer:
     def process_images(
         self,
         image_paths: Sequence[str | Path],
-        threshold: float = 0.5,
+        threshold: float | None = None,
         batch_size: int | None = None,
         num_workers: int | None = None,
     ) -> list[LocalizationOutput]:
@@ -191,6 +260,7 @@ class AnomalyLocalizer:
         effective_num_workers = (
             self.predict_num_workers if num_workers is None else num_workers
         )
+        resolved_threshold = self._resolve_threshold(threshold)
 
         dataloader = self._create_predict_dataloader(
             image_paths=resolved_paths,
@@ -213,7 +283,7 @@ class AnomalyLocalizer:
             outputs.extend(
                 self._parse_prediction_batch(
                     predictions=cast(ImageBatch, batch),
-                    threshold=threshold,
+                    threshold=resolved_threshold,
                 )
             )
 
@@ -245,25 +315,28 @@ class AnomalyLocalizer:
 
         return self.model.__class__.__name__
 
-    def get_provenance(self, score_threshold: float = 0.5) -> dict[str, str | float]:
+    def get_provenance(
+        self, score_threshold: float | None = None
+    ) -> dict[str, str | float]:
+        resolved_threshold = self._resolve_threshold(score_threshold)
         return {
             "architecture": self._architecture,
             "encoder_name": self._encoder_name,
             "checkpoint_path": str(self.checkpoint_path),
-            "score_threshold": score_threshold,
+            "score_threshold": resolved_threshold,
         }
 
     def process_image(
         self,
         image_path: str | Path,
-        threshold: float = 0.5,
+        threshold: float | None = None,
     ) -> LocalizationOutput:
         """
         Processes a single image and extracts localization data.
 
         Args:
             image_path: Path to the input image.
-            threshold: Threshold for segmentation mask generation.
+            threshold: Optional override for segmentation mask generation.
 
         Returns:
             Dictionary containing 'heatmap', 'mask', 'boxes', and 'score'.

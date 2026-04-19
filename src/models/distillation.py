@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import argparse
+import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast
 
@@ -18,6 +21,8 @@ from src.utils.image_size import resolve_image_size
 from src.utils.logger import get_logger, setup_project
 
 log = get_logger("distillation")
+
+_DISTILLATION_TEACHER_DEVICE_ENV = "DISTILLATION_TEACHER_DEVICE"
 
 # FastViT-T8 micro-experiment confirmed output embedding dimension of 768.
 # Source provenance: `notebooks/verify_fastvit.py` execution logs.
@@ -40,6 +45,32 @@ class TeacherEncoder(Protocol):
     def encode_images(
         self, images: torch.Tensor, prompts: list[str]
     ) -> torch.Tensor: ...
+
+
+def _resolve_teacher_device_preference(
+    raw_value: str,
+) -> Literal["auto", "cuda", "cpu"]:
+    normalized = raw_value.strip().lower()
+    if normalized not in {"auto", "cuda", "cpu"}:
+        msg = (
+            f"Teacher device must be one of 'auto', 'cuda', or 'cpu', got {raw_value!r}"
+        )
+        raise ValueError(msg)
+    return cast(Literal["auto", "cuda", "cpu"], normalized)
+
+
+def _resolve_default_teacher_device() -> Literal["auto", "cuda", "cpu"]:
+    raw_value = os.environ.get(_DISTILLATION_TEACHER_DEVICE_ENV, "auto")
+    try:
+        return _resolve_teacher_device_preference(raw_value)
+    except ValueError:
+        log.warning(
+            "Invalid distillation teacher device; using fallback",
+            env_key=_DISTILLATION_TEACHER_DEVICE_ENV,
+            value=raw_value,
+            fallback="auto",
+        )
+        return "auto"
 
 
 def _resolve_model_loader() -> type[Any]:
@@ -69,19 +100,26 @@ class QwenTeacherEncoder:
             "Analyze bubbling defects and summarize anomaly semantics for"
             " downstream student distillation."
         ),
+        device_preference: Literal["auto", "cuda", "cpu"] = "auto",
     ) -> None:
         self.prompt_template = prompt_template
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if device_preference == "cuda" and not torch.cuda.is_available():
+            msg = (
+                "CUDA requested for teacher encoder but "
+                "torch.cuda.is_available() is False"
+            )
+            raise RuntimeError(msg)
+        use_cuda = device_preference == "cuda" or (
+            device_preference == "auto" and torch.cuda.is_available()
+        )
+        self.device = torch.device("cuda" if use_cuda else "cpu")
         dtype = torch.bfloat16 if self.device.type == "cuda" else torch.float32
 
         loader = _resolve_model_loader()
         model_kwargs: dict[str, Any] = {"torch_dtype": dtype}
-        if self.device.type == "cuda":
-            model_kwargs["device_map"] = "auto"
 
         self.model = cast(Any, loader).from_pretrained(model_id, **model_kwargs)
-        if self.device.type != "cuda":
-            self.model.to(self.device)
+        self.model.to(self.device)
         self.model.eval()
 
         self.processor = AutoProcessor.from_pretrained(model_id)
@@ -470,7 +508,63 @@ def build_distillation_dataloader(
     )
 
 
+def _positive_int(raw_value: str) -> int:
+    parsed_value = int(raw_value)
+    if parsed_value < 1:
+        msg = "Value must be a positive integer"
+        raise argparse.ArgumentTypeError(msg)
+    return parsed_value
+
+
+def _resolve_default_epochs() -> int:
+    raw_value = os.environ.get("DISTILLATION_EPOCHS", "1")
+    try:
+        parsed_value = int(raw_value)
+    except ValueError:
+        log.warning(
+            "Invalid DISTILLATION_EPOCHS value; using fallback",
+            value=raw_value,
+            fallback=1,
+        )
+        return 1
+
+    if parsed_value < 1:
+        log.warning(
+            "Non-positive DISTILLATION_EPOCHS value; using fallback",
+            value=parsed_value,
+            fallback=1,
+        )
+        return 1
+    return parsed_value
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Contrastive distillation training for bubbling-detection semantics"
+    )
+    parser.add_argument(
+        "--epochs",
+        type=_positive_int,
+        default=_resolve_default_epochs(),
+        help=(
+            "Number of distillation epochs. "
+            "Defaults to DISTILLATION_EPOCHS env var if set, otherwise 1."
+        ),
+    )
+    parser.add_argument(
+        "--teacher-device",
+        choices=("auto", "cuda", "cpu"),
+        default=_resolve_default_teacher_device(),
+        help=(
+            "Teacher runtime device. Defaults to DISTILLATION_TEACHER_DEVICE "
+            "env var if set, otherwise auto."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
 def main() -> None:
+    args = parse_args()
     setup_project()
 
     dataloader = build_distillation_dataloader(
@@ -479,7 +573,7 @@ def main() -> None:
         batch_size=2,
     )
 
-    teacher = QwenTeacherEncoder()
+    teacher = QwenTeacherEncoder(device_preference=args.teacher_device)
 
     warmup_images, _ = next(iter(dataloader))
     with torch.no_grad():
@@ -493,7 +587,7 @@ def main() -> None:
         embedding_dim=warmup_embeddings.shape[1],
     )
     trainer = ContrastiveDistillationTrainer(teacher=teacher, student=student)
-    history = trainer.fit(dataloader=dataloader, epochs=1)
+    history = trainer.fit(dataloader=dataloader, epochs=args.epochs)
     save_distillation_checkpoint(
         student=student,
         history=history,

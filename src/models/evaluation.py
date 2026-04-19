@@ -181,8 +181,8 @@ def _collect_inference_context(samples: list[EvaluationSample]) -> InferenceCont
 
 def _collect_localization_context(
     checkpoint_path: Path,
+    score_threshold: float,
     localizer: AnomalyLocalizer | None = None,
-    score_threshold: float = 0.5,
 ) -> LocalizationContext:
     resolved_localizer = (
         localizer
@@ -302,7 +302,7 @@ def evaluate_localization(
 ) -> tuple[LocalizationMetrics, float, LocalizationContext]:
     checkpoint_path = _resolve_dinomaly_checkpoint()
     localizer = AnomalyLocalizer(checkpoint_path=checkpoint_path, predict_num_workers=0)
-    score_threshold = 0.5
+    score_threshold = localizer.get_calibrated_threshold()
     localization_context = _collect_localization_context(
         checkpoint_path=checkpoint_path,
         localizer=localizer,

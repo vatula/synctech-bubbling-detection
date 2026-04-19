@@ -9,6 +9,9 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
+import numpy as np
+from pytest import MonkeyPatch
+
 from src.utils.image_size import DEFAULT_IMAGE_SIZE
 
 
@@ -189,6 +192,81 @@ def test_inference_context_has_resolution_and_batch_sizes() -> None:
     assert inference_context["classification_batch_size"] == 1
     assert inference_context["localization_batch_size"] == 1
     assert inference_context["semantic_batch_size"] == 1
+
+
+def test_evaluate_localization_uses_model_calibrated_threshold(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    evaluate_localization = cast(
+        Callable[[list[object]], tuple[dict[str, Any], float, dict[str, Any]]],
+        evaluation_module.__dict__["evaluate_localization"],
+    )
+
+    observed_threshold: dict[str, float] = {}
+
+    class _LocalizerStub:
+        def __init__(
+            self,
+            checkpoint_path: Path,
+            predict_num_workers: int = 0,
+        ) -> None:
+            _ = predict_num_workers
+            self.checkpoint_path = checkpoint_path
+
+        def get_calibrated_threshold(self) -> float:
+            return 0.73
+
+        def process_images(
+            self,
+            image_paths: list[Path],
+            threshold: float,
+        ) -> list[dict[str, Any]]:
+            observed_threshold["value"] = threshold
+            assert len(image_paths) == 2
+            return [
+                {
+                    "score": 0.70,
+                    "mask": np.zeros((2, 2), dtype=np.uint8),
+                    "boxes": [],
+                },
+                {
+                    "score": 0.80,
+                    "mask": np.ones((2, 2), dtype=np.uint8),
+                    "boxes": [[0, 0, 1, 1]],
+                },
+            ]
+
+        def get_provenance(self, score_threshold: float) -> dict[str, Any]:
+            return {
+                "architecture": "anomalib.models.Dinomaly",
+                "encoder_name": "dinov2reg_vit_large_14",
+                "checkpoint_path": str(self.checkpoint_path),
+                "score_threshold": score_threshold,
+            }
+
+    class _LocalizationSample:
+        def __init__(self, path: Path, label: int) -> None:
+            self.path = path
+            self.label = label
+
+    monkeypatch.setattr(evaluation_module, "AnomalyLocalizer", _LocalizerStub)
+    monkeypatch.setattr(
+        evaluation_module,
+        "_resolve_dinomaly_checkpoint",
+        lambda: Path("results/Dinomaly/bubbling/latest/weights/lightning/model.ckpt"),
+    )
+
+    samples = [
+        _LocalizationSample(path=Path("nominal.png"), label=0),
+        _LocalizationSample(path=Path("bubbling.png"), label=1),
+    ]
+    metrics, _, localization_context = evaluate_localization(cast(list[object], samples))
+
+    assert observed_threshold["value"] == 0.73
+    assert localization_context["score_threshold"] == 0.73
+    assert metrics["accuracy"] == 1.0
+    assert metrics["precision"] == 1.0
+    assert metrics["recall"] == 1.0
 
 
 def test_report_outputs_include_provenance_blocks(tmp_path: Path) -> None:

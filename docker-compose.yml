@@ -1,19 +1,28 @@
+x-service-common: &service-common
+  build:
+    context: .
+    network: host
+  user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+  volumes:
+    - .:/app:z
+  devices:
+    - /dev/kfd:/dev/kfd
+    - /dev/dri:/dev/dri
+  privileged: true
+  shm_size: "8gb"
+  environment: &service-env
+    HIP_VISIBLE_DEVICES: ${HIP_VISIBLE_DEVICES:-0}
+    HSA_OVERRIDE_GFX_VERSION: ${HSA_OVERRIDE_GFX_VERSION:-11.0.0} # Navi 31 (7900 XTX/XT)
+    DISTILLATION_EPOCHS: ${DISTILLATION_EPOCHS:-10}
+    LOG_STREAM_MICRO_EXPERIMENT: ${LOG_STREAM_MICRO_EXPERIMENT:-0}
+    LOG_STREAM_MICRO_DELAY_SECONDS: ${LOG_STREAM_MICRO_DELAY_SECONDS:-0.2}
+    PYTHONUNBUFFERED: ${PYTHONUNBUFFERED:-1}
+    BUBBLING_IMAGE_SIZE: ${BUBBLING_IMAGE_SIZE:-280}
+
 services:
   training:
-    build:
-      context: .
-      network: host
+    <<: *service-common
     container_name: bubbling-detection-training
-    volumes:
-      - .:/app
-    devices:
-      - /dev/kfd:/dev/kfd
-      - /dev/dri:/dev/dri
-    privileged: true
-    shm_size: '8gb'
-    environment:
-      - HIP_VISIBLE_DEVICES=0
-      - HSA_OVERRIDE_GFX_VERSION=11.0.0 # Navi 31 (7900 XTX/XT)
     command: >
       bash -lc "set -euo pipefail;
       chmod +x ./retrain.sh ./evaluate.sh;
@@ -21,40 +30,16 @@ services:
       ./evaluate.sh"
 
   pipeline:
-    build:
-      context: .
-      network: host
+    <<: *service-common
     container_name: bubbling-detection-pipeline
-    volumes:
-      - .:/app
-    devices:
-      - /dev/kfd:/dev/kfd
-      - /dev/dri:/dev/dri
-    privileged: true
-    shm_size: '8gb'
-    environment:
-      - HIP_VISIBLE_DEVICES=0
-      - HSA_OVERRIDE_GFX_VERSION=11.0.0 # Navi 31 (7900 XTX/XT)
     command: >
       bash -lc "set -euo pipefail;
       chmod +x ./run_pipeline.sh;
       ./run_pipeline.sh"
 
   cleanup:
-    build:
-      context: .
-      network: host
-    container_name: bubbling-detection-training
-    volumes:
-      - .:/app
-    devices:
-      - /dev/kfd:/dev/kfd
-      - /dev/dri:/dev/dri
-    privileged: true
-    shm_size: '8gb'
-    environment:
-      - HIP_VISIBLE_DEVICES=0
-      - HSA_OVERRIDE_GFX_VERSION=11.0.0 # Navi 31 (7900 XTX/XT)
+    <<: *service-common
+    container_name: bubbling-detection-cleanup
     command: >
       bash -lc "set -euo pipefail;
       chmod +x ./cleanup.sh;
