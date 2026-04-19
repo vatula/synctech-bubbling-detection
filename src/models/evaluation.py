@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
@@ -76,12 +77,28 @@ class LocalizationContext(TypedDict):
     score_threshold: float
 
 
+class ValidationContext(TypedDict):
+    classification_validation_type: str
+    classification_fold_count: int
+    localization_validation_type: str
+    semantic_validation_type: str
+    semantic_fold_count: int
+
+
+class TrainingProgressContext(TypedDict):
+    distillation_epochs: int
+    distillation_loss_curve_generated: bool
+    distillation_loss_curve_path: str
+
+
 class ConsolidatedReport(TypedDict):
     generated_at_utc: str
     sample_count: int
     runtime_context: RuntimeContext
     inference_context: InferenceContext
     localization_context: LocalizationContext
+    validation_context: ValidationContext
+    training_progress: TrainingProgressContext
     classification: BinaryMetrics
     localization: LocalizationMetrics
     semantic: SemanticMetrics
@@ -180,6 +197,51 @@ def _collect_localization_context(
         "checkpoint_path": str(provenance["checkpoint_path"]),
         "score_threshold": float(provenance["score_threshold"]),
     }
+
+
+def _build_validation_context(sample_count: int) -> ValidationContext:
+    return {
+        "classification_validation_type": "Leave-One-Out Cross-Validation",
+        "classification_fold_count": sample_count,
+        "localization_validation_type": (
+            "Thresholded anomaly-map evaluation over labeled nominal/bubbling split"
+        ),
+        "semantic_validation_type": (
+            "Leave-One-Out Cross-Validation over student embeddings"
+        ),
+        "semantic_fold_count": sample_count,
+    }
+
+
+def _write_distillation_loss_curve(
+    loss_history: list[float],
+    output_path: Path,
+) -> bool:
+    if not loss_history:
+        if output_path.exists():
+            output_path.unlink()
+        return False
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    epochs = np.arange(1, len(loss_history) + 1, dtype=np.int64)
+
+    figure, axis = plt.subplots(figsize=(8.4, 4.6))
+    axis.plot(
+        epochs,
+        loss_history,
+        marker="o",
+        markersize=4,
+        linewidth=2.0,
+        color="#1f77b4",
+    )
+    axis.set_title("Distillation Training Progress")
+    axis.set_xlabel("Epoch")
+    axis.set_ylabel("Loss")
+    axis.grid(alpha=0.3, linestyle="--")
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    return True
 
 
 def evaluate_classification(
@@ -341,7 +403,7 @@ def _infer_student_architecture(
 def evaluate_semantic(
     samples: list[EvaluationSample],
     checkpoint_path: Path,
-) -> tuple[SemanticMetrics, float]:
+) -> tuple[SemanticMetrics, float, list[float]]:
     if not checkpoint_path.exists():
         msg = f"Distillation checkpoint not found: {checkpoint_path}"
         raise FileNotFoundError(msg)
@@ -415,13 +477,15 @@ def evaluate_semantic(
     }
 
     latency_mean = float(np.mean(latencies_ms))
-    return semantic_metrics, latency_mean
+    return semantic_metrics, latency_mean, history
 
 
 def _render_markdown(report: ConsolidatedReport) -> str:
     runtime_context = report["runtime_context"]
     inference_context = report["inference_context"]
     localization_context = report["localization_context"]
+    validation_context = report["validation_context"]
+    training_progress = report["training_progress"]
     classification = report["classification"]
     localization = report["localization"]
     semantic = report["semantic"]
@@ -457,6 +521,39 @@ def _render_markdown(report: ConsolidatedReport) -> str:
             f"- Encoder name: {localization_context['encoder_name']}",
             f"- Checkpoint path: {localization_context['checkpoint_path']}",
             f"- Score threshold: {localization_context['score_threshold']:.6f}",
+            "",
+            "### Validation Context",
+            (
+                "- Classification validation type: "
+                f"{validation_context['classification_validation_type']}"
+            ),
+            (
+                "- Classification fold count: "
+                f"{validation_context['classification_fold_count']}"
+            ),
+            (
+                "- Localization validation type: "
+                f"{validation_context['localization_validation_type']}"
+            ),
+            (
+                "- Semantic validation type: "
+                f"{validation_context['semantic_validation_type']}"
+            ),
+            f"- Semantic fold count: {validation_context['semantic_fold_count']}",
+            "",
+            "### Training Progress",
+            (
+                "- Distillation epochs tracked: "
+                f"{training_progress['distillation_epochs']}"
+            ),
+            (
+                "- Distillation loss curve generated: "
+                f"{training_progress['distillation_loss_curve_generated']}"
+            ),
+            (
+                "- Distillation loss curve path: "
+                f"{training_progress['distillation_loss_curve_path']}"
+            ),
             "",
             "### Classification",
             f"- Accuracy: {classification['accuracy']:.6f}",
@@ -529,9 +626,15 @@ def main() -> None:
     localization_metrics, localization_latency, localization_context = (
         evaluate_localization(samples=samples)
     )
-    semantic_metrics, semantic_latency = evaluate_semantic(
+    semantic_metrics, semantic_latency, semantic_loss_history = evaluate_semantic(
         samples=samples,
         checkpoint_path=Path("results/phase5/distillation/student_distillation.pt"),
+    )
+    report_output_dir = Path("results")
+    distillation_curve_path = report_output_dir / "phase5_distillation_loss_curve.png"
+    distillation_curve_generated = _write_distillation_loss_curve(
+        loss_history=semantic_loss_history,
+        output_path=distillation_curve_path,
     )
 
     latency_report: LatencyMetrics = {
@@ -549,6 +652,12 @@ def main() -> None:
         "runtime_context": runtime_context,
         "inference_context": inference_context,
         "localization_context": localization_context,
+        "validation_context": _build_validation_context(sample_count=len(samples)),
+        "training_progress": {
+            "distillation_epochs": len(semantic_loss_history),
+            "distillation_loss_curve_generated": distillation_curve_generated,
+            "distillation_loss_curve_path": str(distillation_curve_path),
+        },
         "classification": classification_metrics,
         "localization": localization_metrics,
         "semantic": semantic_metrics,

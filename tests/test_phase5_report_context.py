@@ -33,7 +33,21 @@ def _install_evaluation_import_stubs() -> None:
     def build_student(*_: object, **__: object) -> object:
         return object()
 
+    class ContrastiveDistillationTrainer: ...
+
+    class FastViTStudent: ...
+
+    class QwenTeacherEncoder: ...
+
+    class TinyCNNStudent: ...
+
     distillation_module.__dict__["build_student"] = build_student
+    distillation_module.__dict__["ContrastiveDistillationTrainer"] = (
+        ContrastiveDistillationTrainer
+    )
+    distillation_module.__dict__["FastViTStudent"] = FastViTStudent
+    distillation_module.__dict__["QwenTeacherEncoder"] = QwenTeacherEncoder
+    distillation_module.__dict__["TinyCNNStudent"] = TinyCNNStudent
     sys.modules.setdefault("src.models.distillation", distillation_module)
 
     extractor_module = ModuleType("src.models.extractor")
@@ -84,6 +98,24 @@ def _build_report() -> dict[str, Any]:
                 "results/Dinomaly/bubbling/latest/weights/lightning/model.ckpt"
             ),
             "score_threshold": 0.5,
+        },
+        "validation_context": {
+            "classification_validation_type": "Leave-One-Out Cross-Validation",
+            "classification_fold_count": 34,
+            "localization_validation_type": (
+                "Thresholded anomaly-map evaluation over labeled nominal/bubbling split"
+            ),
+            "semantic_validation_type": (
+                "Leave-One-Out Cross-Validation over student embeddings"
+            ),
+            "semantic_fold_count": 34,
+        },
+        "training_progress": {
+            "distillation_epochs": 10,
+            "distillation_loss_curve_generated": True,
+            "distillation_loss_curve_path": (
+                "results/phase5_distillation_loss_curve.png"
+            ),
         },
         "classification": {
             "accuracy": 0.5,
@@ -182,10 +214,15 @@ def test_report_outputs_include_provenance_blocks(tmp_path: Path) -> None:
     assert payload["inference_context"]["localization_batch_size"] == 1
     assert payload["inference_context"]["semantic_batch_size"] == 1
     assert payload["localization_context"]["architecture"] == "anomalib.models.Dinomaly"
+    assert payload["validation_context"]["classification_fold_count"] == 34
+    assert payload["validation_context"]["semantic_fold_count"] == 34
+    assert payload["training_progress"]["distillation_loss_curve_generated"] is True
 
     assert "### Runtime Context" in markdown
     assert "### Inference Context" in markdown
     assert "### Localization Context" in markdown
+    assert "### Validation Context" in markdown
+    assert "### Training Progress" in markdown
 
 
 def test_render_markdown_raises_when_context_blocks_missing() -> None:
