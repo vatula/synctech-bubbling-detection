@@ -3,12 +3,18 @@ from typing import Any, Protocol
 
 import cv2
 import numpy as np
+import structlog
 import torch
 from torch.utils.data import Dataset
 
-from src.utils.logger import get_logger
+logger = structlog.get_logger()
 
-log = get_logger(__name__)
+# Label constants exist to make class semantics explicit at callsites and logs.
+# Expected range: binary labels only (0 or 1).
+# Impact if changed: downstream classifier training and metrics labeling
+# become incorrect.
+NOMINAL_LABEL = 0
+BUBBLING_LABEL = 1
 
 
 class Transform(Protocol):
@@ -45,15 +51,15 @@ class BubblingDataset(Dataset[tuple[torch.Tensor, int]]):
         # Load Nominal (Label 0)
         nominal_images = sorted(self.nominal_path.glob("*"))
         self.image_paths.extend(nominal_images)
-        self.labels.extend([0] * len(nominal_images))
+        self.labels.extend([NOMINAL_LABEL] * len(nominal_images))
 
         # Load Bubbling (Label 1)
         bubbling_images = sorted(self.bubbling_path.glob("*"))
         self.image_paths.extend(bubbling_images)
-        self.labels.extend([1] * len(bubbling_images))
+        self.labels.extend([BUBBLING_LABEL] * len(bubbling_images))
 
-        log.info(
-            "Dataset initialized",
+        logger.info(
+            "dataset_initialized",
             nominal_count=len(nominal_images),
             bubbling_count=len(bubbling_images),
             total=len(self.image_paths),
@@ -67,25 +73,30 @@ class BubblingDataset(Dataset[tuple[torch.Tensor, int]]):
         # cv2 loads as BGR
         image = cv2.imread(image_path)
         if image is None:
-            log.error("Failed to load image", path=image_path)
+            logger.error("image_load_failed", path=image_path)
             raise FileNotFoundError(f"Could not load image at {image_path}")
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        if self.transform:
+        image_raw: object
+        if self.transform is None:
+            image_raw = image
+        else:
             augmented = self.transform(image=image)
-            # Albumentations returns various types based on transform
             image_raw = augmented["image"]
-            if isinstance(image_raw, np.ndarray | torch.Tensor):
-                image = image_raw
-            else:
-                msg = f"Unexpected image type from transform: {type(image_raw)}"
-                raise TypeError(msg)
+
+        if not isinstance(image_raw, torch.Tensor):
+            payload = {
+                "event": "dataset_transform_contract_violation",
+                "index": idx,
+                "image_path": image_path,
+                "received_type": type(image_raw).__name__,
+            }
+            logger.error(**payload)
+            raise RuntimeError(str(payload))
+
+        image_tensor = image_raw
 
         label = self.labels[idx]
 
-        if isinstance(image, np.ndarray):
-            # Fallback if no ToTensorV2 in transform
-            image = torch.from_numpy(image.transpose(2, 0, 1)).float() / 255.0
-
-        return image, label
+        return image_tensor, label

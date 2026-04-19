@@ -14,9 +14,26 @@ from transformers import AutoProcessor
 
 from src.data.loader import BubblingDataset
 from src.data.transforms import get_train_transforms
+from src.utils.image_size import resolve_image_size
 from src.utils.logger import get_logger, setup_project
 
 log = get_logger("distillation")
+
+# FastViT-T8 micro-experiment confirmed output embedding dimension of 768.
+# Source provenance: `notebooks/verify_fastvit.py` execution logs.
+# Impact if changed: projection-head input width must match backbone output.
+FASTVIT_T8_BACKBONE_EMBED_DIM = 768
+
+# Qwen2.5-VL-3B commonly exposes a 2048-dimensional hidden-state width.
+# Source provenance: model family architecture defaults and Phase 4 teacher setup.
+# Impact if changed: student projection head output no longer aligns with teacher space.
+DEFAULT_TEACHER_EMBED_DIM = 2048
+
+# Cosine threshold preserves numerical equivalence expectation after structural
+# reparameterization while allowing tiny floating-point drift.
+# Source provenance: standard deploy-fusion tolerance for conv+bn style folding.
+# Impact if changed: test sensitivity for reparameterization invariance shifts.
+REPARAM_COSINE_THRESHOLD = 0.999
 
 
 class TeacherEncoder(Protocol):
@@ -171,17 +188,120 @@ class TinyCNNStudent(nn.Module):
         return F.normalize(embeddings, dim=-1)
 
 
+class FastViTStudent(nn.Module):
+    def __init__(
+        self,
+        teacher_embedding_dim: int = DEFAULT_TEACHER_EMBED_DIM,
+        backbone_name: str = "fastvit_t8",
+        image_size: int | None = None,
+        projection_hidden_dim: int | None = None,
+        pretrained_backbone: bool = False,
+    ) -> None:
+        super().__init__()
+        resolved_image_size = resolve_image_size(image_size)
+        self.backbone_name = backbone_name
+        self.teacher_embedding_dim = teacher_embedding_dim
+        self._reparameterized = False
+
+        if backbone_name.startswith("fastvit"):
+            self.feature_extractor = timm.create_model(
+                backbone_name,
+                pretrained=pretrained_backbone,
+                num_classes=0,
+            )
+        else:
+            self.feature_extractor = timm.create_model(
+                backbone_name,
+                pretrained=pretrained_backbone,
+                num_classes=0,
+                img_size=resolved_image_size,
+            )
+
+        backbone_embed_dim = self._resolve_backbone_embed_dim(resolved_image_size)
+        hidden_dim = projection_hidden_dim or max(
+            backbone_embed_dim,
+            teacher_embedding_dim,
+        )
+        self.projection_head = nn.Sequential(
+            nn.LayerNorm(backbone_embed_dim),
+            nn.Linear(backbone_embed_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, teacher_embedding_dim),
+        )
+
+    def _resolve_backbone_embed_dim(self, image_size: int) -> int:
+        if self.backbone_name == "fastvit_t8":
+            return FASTVIT_T8_BACKBONE_EMBED_DIM
+
+        self.feature_extractor.eval()
+        with torch.no_grad():
+            probe = torch.zeros(1, 3, image_size, image_size)
+            features = self.feature_extractor(probe)
+
+        return int(features.shape[-1])
+
+    def extract_features(self, images: torch.Tensor) -> torch.Tensor:
+        return self.feature_extractor(images)
+
+    def project_features(self, features: torch.Tensor) -> torch.Tensor:
+        return self.projection_head(features)
+
+    def apply_structural_reparameterization(self) -> FastViTStudent:
+        if self._reparameterized:
+            log.info("FastViT reparameterization skipped", reason="already_applied")
+            return self
+
+        self.eval()
+        reparameterized_modules = 0
+        for module in self.feature_extractor.modules():
+            if hasattr(module, "reparameterize"):
+                reparameterize = module.reparameterize
+                if callable(reparameterize):
+                    reparameterize()
+                    reparameterized_modules += 1
+                    continue
+
+            if hasattr(module, "switch_to_deploy"):
+                switch_to_deploy = module.switch_to_deploy
+                if callable(switch_to_deploy):
+                    switch_to_deploy()
+                    reparameterized_modules += 1
+
+        self._reparameterized = True
+        log.info(
+            "FastViT structural reparameterization applied",
+            modules=reparameterized_modules,
+        )
+        return self
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        features = self.extract_features(images)
+        projected = self.project_features(features)
+        return F.normalize(projected, dim=-1)
+
+
 def build_student(
-    architecture: Literal["cnn", "vit_tiny"],
+    architecture: Literal["cnn", "vit_tiny", "fastvit_t8"],
     embedding_dim: int,
+    image_size: int | None = None,
 ) -> nn.Module:
+    resolved_image_size = resolve_image_size(image_size)
+
     if architecture == "cnn":
         return TinyCNNStudent(embedding_dim=embedding_dim)
+
+    if architecture == "fastvit_t8":
+        return FastViTStudent(
+            teacher_embedding_dim=embedding_dim,
+            backbone_name="fastvit_t8",
+            image_size=resolved_image_size,
+        )
 
     vit = timm.create_model(
         "vit_tiny_patch16_224",
         pretrained=False,
         num_classes=embedding_dim,
+        img_size=resolved_image_size,
     )
 
     class ViTTinyStudent(nn.Module):
@@ -296,6 +416,14 @@ class ContrastiveDistillationTrainer:
         return history
 
 
+def _resolve_student_architecture(student: nn.Module) -> str:
+    if isinstance(student, FastViTStudent):
+        return "fastvit_t8"
+    if isinstance(student, TinyCNNStudent):
+        return "cnn"
+    return "vit_tiny"
+
+
 def save_distillation_checkpoint(
     student: nn.Module,
     history: list[float],
@@ -307,6 +435,7 @@ def save_distillation_checkpoint(
 
     payload: dict[str, object] = {
         "student_state_dict": student.state_dict(),
+        "student_architecture": _resolve_student_architecture(student),
         "loss_history": history,
         "epochs": len(history),
     }
@@ -323,13 +452,15 @@ def build_distillation_dataloader(
     nominal_dir: str | Path,
     bubbling_dir: str | Path,
     batch_size: int = 4,
-    image_size: int = 224,
+    image_size: int | None = None,
     num_workers: int = 0,
 ) -> DataLoader[tuple[torch.Tensor, int]]:
+    resolved_image_size = resolve_image_size(image_size)
+
     dataset = BubblingDataset(
         nominal_dir=nominal_dir,
         bubbling_dir=bubbling_dir,
-        transform=get_train_transforms(image_size=image_size),
+        transform=get_train_transforms(image_size=resolved_image_size),
     )
     return DataLoader(
         dataset,
@@ -358,7 +489,7 @@ def main() -> None:
         )
 
     student = build_student(
-        architecture="vit_tiny",
+        architecture="fastvit_t8",
         embedding_dim=warmup_embeddings.shape[1],
     )
     trainer = ContrastiveDistillationTrainer(teacher=teacher, student=student)

@@ -1,7 +1,8 @@
 import json
 import pickle
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TypedDict
+from typing import Protocol, TypedDict
 
 import numpy as np
 import torch
@@ -10,6 +11,7 @@ from sklearn.model_selection import LeaveOneOut
 from sklearn.svm import LinearSVC
 
 from src.utils.logger import get_logger
+from src.utils.visualizer import StaticModelCardGenerator
 
 log = get_logger("classifier")
 
@@ -23,13 +25,26 @@ class Metrics(TypedDict):
     recall: float
 
 
+class ReportGenerator(Protocol):
+    def generate_report(
+        self,
+        metrics: Mapping[str, float],
+        decision_scores: np.ndarray,
+        ground_truth: np.ndarray,
+        output_path: str | Path = "pipeline_metrics_report.md",
+    ) -> str: ...
+
+
 class BubblingClassifier:
     """
     SVM Classifier for bubbling detection using LinearSVC and LOOCV.
     """
 
     def __init__(
-        self, class_weight: str | dict[int, float] = "balanced", random_state: int = 42
+        self,
+        class_weight: str | dict[int, float] = "balanced",
+        random_state: int = 42,
+        report_generator: ReportGenerator | None = None,
     ) -> None:
         """
         Initializes the LinearSVC model.
@@ -44,6 +59,9 @@ class BubblingClassifier:
             random_state=random_state,
             dual="auto",
             max_iter=10000,
+        )
+        self.report_generator: ReportGenerator = (
+            report_generator or StaticModelCardGenerator()
         )
 
     def run_loocv(self, features: np.ndarray, labels: np.ndarray) -> Metrics:
@@ -87,6 +105,19 @@ class BubblingClassifier:
             "precision": float(precision_score(y_true, y_pred)),
             "recall": float(recall_score(y_true, y_pred)),
         }
+
+        metrics_payload = {
+            "accuracy": float(metrics["accuracy"]),
+            "auroc": float(metrics["auroc"]),
+            "precision": float(metrics["precision"]),
+            "recall": float(metrics["recall"]),
+        }
+
+        self.report_generator.generate_report(
+            metrics=metrics_payload,
+            decision_scores=np.array(y_score, dtype=np.float64),
+            ground_truth=np.array(y_true, dtype=np.int64),
+        )
 
         log.info("LOOCV Validation Report", **metrics)
         return metrics

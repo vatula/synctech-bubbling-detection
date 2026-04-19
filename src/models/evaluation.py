@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import Literal, TypedDict, cast
 
 import numpy as np
 import torch
@@ -239,7 +239,7 @@ def evaluate_localization(
     samples: list[EvaluationSample],
 ) -> tuple[LocalizationMetrics, float, LocalizationContext]:
     checkpoint_path = _resolve_dinomaly_checkpoint()
-    localizer = AnomalyLocalizer(checkpoint_path=checkpoint_path)
+    localizer = AnomalyLocalizer(checkpoint_path=checkpoint_path, predict_num_workers=0)
     score_threshold = 0.5
     localization_context = _collect_localization_context(
         checkpoint_path=checkpoint_path,
@@ -314,6 +314,30 @@ def _infer_embedding_dim(state_dict: dict[str, torch.Tensor]) -> int:
     raise RuntimeError(msg)
 
 
+def _infer_student_architecture(
+    payload_architecture: object,
+    state_dict: dict[str, torch.Tensor],
+) -> Literal["cnn", "vit_tiny", "fastvit_t8"]:
+    if payload_architecture in {"cnn", "vit_tiny", "fastvit_t8"}:
+        return cast(Literal["cnn", "vit_tiny", "fastvit_t8"], payload_architecture)
+
+    state_keys = tuple(state_dict.keys())
+    if any(
+        key.startswith("feature_extractor.") or key.startswith("projection_head.")
+        for key in state_keys
+    ):
+        return "fastvit_t8"
+
+    if any(key.startswith("features.") for key in state_keys):
+        return "cnn"
+
+    if any(key.startswith("backbone.") for key in state_keys):
+        return "vit_tiny"
+
+    msg = "Unable to infer student architecture from checkpoint payload"
+    raise RuntimeError(msg)
+
+
 def evaluate_semantic(
     samples: list[EvaluationSample],
     checkpoint_path: Path,
@@ -325,10 +349,24 @@ def evaluate_semantic(
     payload = cast(dict[str, object], torch.load(checkpoint_path, map_location="cpu"))
     state_dict = cast(dict[str, torch.Tensor], payload["student_state_dict"])
     history = cast(list[float], payload.get("loss_history", []))
+    student_architecture = _infer_student_architecture(
+        payload_architecture=payload.get("student_architecture"),
+        state_dict=state_dict,
+    )
 
     embedding_dim = _infer_embedding_dim(state_dict)
-    student = build_student(architecture="vit_tiny", embedding_dim=embedding_dim)
+    student = build_student(
+        architecture=student_architecture,
+        embedding_dim=embedding_dim,
+    )
     student.load_state_dict(state_dict)
+    log.info(
+        "Loaded semantic student checkpoint",
+        checkpoint_path=str(checkpoint_path),
+        student_architecture=student_architecture,
+        embedding_dim=embedding_dim,
+        loss_history_points=len(history),
+    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     student.to(device)

@@ -7,6 +7,7 @@ from src.models.distillation import (
 )
 from src.models.qlora_config import QLoRASettings, qlora_config_payload
 from src.models.vlm_json import extract_defect_json
+from src.utils.image_size import DEFAULT_IMAGE_SIZE
 
 
 class DummyTeacher:
@@ -120,7 +121,7 @@ def test_contrastive_loss_shape_mismatch_raises() -> None:
 
 def test_distillation_train_step_runs_with_dummy_teacher() -> None:
     torch.manual_seed(7)
-    images = torch.rand(2, 3, 224, 224)
+    images = torch.rand(2, 3, DEFAULT_IMAGE_SIZE, DEFAULT_IMAGE_SIZE)
 
     teacher = DummyTeacher(embedding_dim=16)
     student = TinyCNNStudent(embedding_dim=16)
@@ -137,7 +138,7 @@ def test_distillation_train_step_runs_with_dummy_teacher() -> None:
 
 
 def test_distillation_train_step_rejects_prompt_mismatch() -> None:
-    images = torch.rand(2, 3, 224, 224)
+    images = torch.rand(2, 3, DEFAULT_IMAGE_SIZE, DEFAULT_IMAGE_SIZE)
 
     teacher = DummyTeacher(embedding_dim=16)
     student = TinyCNNStudent(embedding_dim=16)

@@ -7,6 +7,7 @@ import torch
 
 from src.data.loader import BubblingDataset
 from src.data.transforms import get_train_transforms
+from src.utils.image_size import DEFAULT_IMAGE_SIZE
 from src.utils.logger import get_logger, setup_logger
 
 setup_logger()
@@ -27,7 +28,7 @@ def visualize_batch() -> None:
         log.warning("Data directories not found. Skipping visualization.")
         return
 
-    transforms = get_train_transforms(image_size=224)
+    transforms = get_train_transforms(image_size=DEFAULT_IMAGE_SIZE)
     dataset = BubblingDataset(
         nominal_dir=nominal_dir,
         bubbling_dir=bubbling_dir,

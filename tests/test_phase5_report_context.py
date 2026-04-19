@@ -9,6 +9,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
+from src.utils.image_size import DEFAULT_IMAGE_SIZE
+
 
 def _install_evaluation_import_stubs() -> None:
     loader_module = ModuleType("src.data.loader")
@@ -70,7 +72,7 @@ def _build_report() -> dict[str, Any]:
             "rocm_hip_version": "7.2",
         },
         "inference_context": {
-            "input_resolution_hw": (224, 224),
+            "input_resolution_hw": (DEFAULT_IMAGE_SIZE, DEFAULT_IMAGE_SIZE),
             "classification_batch_size": 1,
             "localization_batch_size": 1,
             "semantic_batch_size": 1,
@@ -121,7 +123,7 @@ def _build_report() -> dict[str, Any]:
 
 class _ImageStub:
     ndim = 3
-    shape = (3, 224, 224)
+    shape = (3, DEFAULT_IMAGE_SIZE, DEFAULT_IMAGE_SIZE)
 
 
 class _SampleStub:
@@ -148,7 +150,10 @@ def test_inference_context_has_resolution_and_batch_sizes() -> None:
     sample = _SampleStub(image=cast(Any, _ImageStub()))
     inference_context = inference_collector([sample])
 
-    assert inference_context["input_resolution_hw"] == (224, 224)
+    assert inference_context["input_resolution_hw"] == (
+        DEFAULT_IMAGE_SIZE,
+        DEFAULT_IMAGE_SIZE,
+    )
     assert inference_context["classification_batch_size"] == 1
     assert inference_context["localization_batch_size"] == 1
     assert inference_context["semantic_batch_size"] == 1
@@ -169,7 +174,10 @@ def test_report_outputs_include_provenance_blocks(tmp_path: Path) -> None:
     markdown = markdown_path.read_text(encoding="utf-8")
 
     assert payload["runtime_context"]["gpu_model"]
-    assert tuple(payload["inference_context"]["input_resolution_hw"]) == (224, 224)
+    assert tuple(payload["inference_context"]["input_resolution_hw"]) == (
+        DEFAULT_IMAGE_SIZE,
+        DEFAULT_IMAGE_SIZE,
+    )
     assert payload["inference_context"]["classification_batch_size"] == 1
     assert payload["inference_context"]["localization_batch_size"] == 1
     assert payload["inference_context"]["semantic_batch_size"] == 1

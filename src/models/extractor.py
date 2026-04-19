@@ -40,7 +40,7 @@ class FeatureExtractor(nn.Module):
         Forward pass to extract normalized features.
 
         Args:
-            x: Input image tensor of shape (B, 3, 224, 224).
+            x: Input image tensor of shape (B, 3, H, W).
 
         Returns:
             L2-normalized feature vector of shape (B, 2048).

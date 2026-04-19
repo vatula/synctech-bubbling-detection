@@ -8,6 +8,7 @@ import torch
 
 from src.data.loader import BubblingDataset
 from src.data.transforms import get_train_transforms
+from src.utils.image_size import DEFAULT_IMAGE_SIZE
 from src.utils.logger import get_logger, setup_project
 
 setup_project()
@@ -58,7 +59,7 @@ def test_transform_output_shape() -> None:
     """
     Verifies the output shape and type of the augmentation pipeline.
     """
-    transforms = get_train_transforms(image_size=224)
+    transforms = get_train_transforms(image_size=DEFAULT_IMAGE_SIZE)
     dummy_image = np.zeros((300, 300, 3), dtype=np.uint8)
 
     augmented = transforms(image=dummy_image)
@@ -69,8 +70,9 @@ def test_transform_output_shape() -> None:
         log.error(msg)
         raise AssertionError(msg)
 
-    if image.shape != (3, 224, 224):
-        msg = f"Expected shape (3, 224, 224), got {image.shape}"
+    expected_shape = (3, DEFAULT_IMAGE_SIZE, DEFAULT_IMAGE_SIZE)
+    if image.shape != expected_shape:
+        msg = f"Expected shape {expected_shape}, got {image.shape}"
         log.error(msg)
         raise AssertionError(msg)
 
@@ -92,7 +94,7 @@ def test_visualize_samples() -> None:
         log.warning("Data directories not found. Skipping visualization.")
         return
 
-    transforms = get_train_transforms(image_size=224)
+    transforms = get_train_transforms(image_size=DEFAULT_IMAGE_SIZE)
     dataset = BubblingDataset(
         nominal_dir=nominal_dir,
         bubbling_dir=bubbling_dir,
