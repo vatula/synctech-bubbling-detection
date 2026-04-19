@@ -114,7 +114,7 @@ This document serves as the authoritative, serialized execution plan for the AI 
 
 **Objective:** Translate the validated Python graphs into ultra-fast FP16 executable engines and run edge-deployment mission-critical assertions.
 
-* **Task 6.1: ONNX Graph Serialization**
+* **Task 6.1: ONNX Graph Serialization [COMPLETED]**
     * Trace and export the frozen DINOv2 backbone, the fitted SVM logic, and the Student semantic model to ONNX. Explicitly define dynamic batching axes.
     * Export the fully trained Dinomaly model using `anomalib export --export_type ONNX`.
 * **Task 6.2: AMD MIGraphX Optimization and Calibration**

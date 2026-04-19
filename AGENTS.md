@@ -64,7 +64,7 @@ For every prompt received, formulate your response as follows:
 - [x] **Task 5.4:** Validate full application phase in container environment using `docker compose` and `docker`. *Use Docker cache/layer reuse where appropriate.*
 
 ### Phase 6: AMD MIGraphX Compilation & Unified CI/CD Verification
-- [ ] **Task 6.1:** Write ONNX serialization script for DINOv2 backbone, SVM, Student VLM, and Dinomaly model (dynamic batching axes). *Run Ruff/Pyright.*
+- [x] **Task 6.1:** Write ONNX serialization script for DINOv2 backbone, SVM, Student VLM, and Dinomaly model (dynamic batching axes). *Run Ruff/Pyright.*
 - [ ] **Task 6.2:** Write MIGraphX compiler script targeting FP16 CDNA/RDNA3 acceleration. *Wait for microsecond latency profiling results.*
 - [ ] **Task 6.3:** Write `src/pipeline.py` (Unified entry point: routing image through compiled engines to unified JSON payload). *Run Ruff/Pyright.*
 - [ ] **Task 6.4:** Write and execute automated assertions against LOOCV iteration counts and latency thresholds.
