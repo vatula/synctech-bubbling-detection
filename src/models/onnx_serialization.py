@@ -17,7 +17,7 @@ from src.utils.logger import get_logger, setup_project
 
 log = get_logger("onnx_serialization")
 
-StudentArchitecture = Literal["cnn", "vit_tiny", "fastvit_t8"]
+StudentArchitecture = Literal["cnn", "vit_tiny_patch16_224", "fastvit_t8"]
 
 
 class ExportManifest(TypedDict):
@@ -75,7 +75,10 @@ def _infer_student_architecture(
     payload_architecture: object,
     state_dict: dict[str, torch.Tensor],
 ) -> StudentArchitecture:
-    if payload_architecture in {"cnn", "vit_tiny", "fastvit_t8"}:
+    if payload_architecture == "vit_tiny":
+        return "vit_tiny_patch16_224"
+
+    if payload_architecture in {"cnn", "vit_tiny_patch16_224", "fastvit_t8"}:
         return cast(StudentArchitecture, payload_architecture)
 
     state_keys = tuple(state_dict.keys())
@@ -89,7 +92,7 @@ def _infer_student_architecture(
         return "cnn"
 
     if any(key.startswith("backbone.") for key in state_keys):
-        return "vit_tiny"
+        return "vit_tiny_patch16_224"
 
     msg = "Unable to infer student architecture from checkpoint payload"
     raise RuntimeError(msg)

@@ -84,7 +84,7 @@ def test_run_distillation_step_retries_on_sigsegv(
         fake_run_streaming_command,
     )
 
-    retrain_module.run_distillation_step(distillation_epochs=5)
+    retrain_module.run_distillation_step(distillation_epochs=5, student_architecture="fastvit_t8")
 
     assert len(calls) == 2
     first_command, first_step = calls[0]
@@ -111,6 +111,6 @@ def test_run_distillation_step_propagates_non_sigsegv(
     )
 
     with pytest.raises(subprocess.CalledProcessError):
-        retrain_module.run_distillation_step(distillation_epochs=5)
+        retrain_module.run_distillation_step(distillation_epochs=5, student_architecture="fastvit_t8")
 
     assert len(calls) == 1

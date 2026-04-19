@@ -73,6 +73,28 @@ def _resolve_default_teacher_device() -> Literal["auto", "cuda", "cpu"]:
         return "auto"
 
 
+def _parse_student_architecture_config(
+    raw_value: str | None,
+) -> Literal["cnn", "vit_tiny_patch16_224", "fastvit_t8"]:
+    if raw_value is None:
+        raw_value = os.environ.get("DISTILLATION_STUDENT_ARCHITECTURE", "fastvit_t8")
+
+    normalized = raw_value.strip().lower()
+
+    # Aliases
+    if normalized == "vit_tiny":
+        return "vit_tiny_patch16_224"
+
+    if normalized in ["fastvit_t8", "vit_tiny_patch16_224", "cnn"]:
+        return cast(Literal["cnn", "vit_tiny_patch16_224", "fastvit_t8"], normalized)
+
+    log.warning(
+        "Invalid architecture; falling back to fastvit_t8",
+        value=normalized,
+    )
+    return "fastvit_t8"
+
+
 def _resolve_model_loader() -> type[Any]:
     import transformers
 
@@ -319,7 +341,7 @@ class FastViTStudent(nn.Module):
 
 
 def build_student(
-    architecture: Literal["cnn", "vit_tiny", "fastvit_t8"],
+    architecture: Literal["cnn", "vit_tiny_patch16_224", "fastvit_t8"],
     embedding_dim: int,
     image_size: int | None = None,
 ) -> nn.Module:
@@ -336,7 +358,7 @@ def build_student(
         )
 
     vit = timm.create_model(
-        "vit_tiny_patch16_224",
+        architecture,
         pretrained=False,
         num_classes=embedding_dim,
         img_size=resolved_image_size,
@@ -560,6 +582,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "env var if set, otherwise auto."
         ),
     )
+    parser.add_argument(
+        "--student-architecture",
+        choices=("cnn", "vit_tiny_patch16_224", "fastvit_t8"),
+        default=_parse_student_architecture_config(None),
+        help=(
+            "Student architecture. Defaults to DISTILLATION_STUDENT_ARCHITECTURE "
+            "env var if set, otherwise fastvit_t8."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -583,7 +614,7 @@ def main() -> None:
         )
 
     student = build_student(
-        architecture="fastvit_t8",
+        architecture=args.student_architecture,
         embedding_dim=warmup_embeddings.shape[1],
     )
     trainer = ContrastiveDistillationTrainer(teacher=teacher, student=student)

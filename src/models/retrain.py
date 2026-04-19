@@ -257,6 +257,7 @@ def build_anomalib_command(config_path: Path) -> list[str]:
 
 def build_distillation_command(
     distillation_epochs: int,
+    student_architecture: str,
     teacher_device: str | None = None,
 ) -> list[str]:
     command = [
@@ -265,6 +266,8 @@ def build_distillation_command(
         "src.models.distillation",
         "--epochs",
         str(distillation_epochs),
+        "--student-architecture",
+        student_architecture,
     ]
     if teacher_device is not None:
         command.extend(["--teacher-device", teacher_device])
@@ -318,9 +321,10 @@ def _run_streaming_command(command: list[str], step_name: str) -> None:
     )
 
 
-def run_distillation_step(distillation_epochs: int) -> None:
+def run_distillation_step(distillation_epochs: int, student_architecture: str) -> None:
     initial_command = build_distillation_command(
         distillation_epochs=distillation_epochs,
+        student_architecture=student_architecture,
     )
     try:
         _run_streaming_command(command=initial_command, step_name="distillation")
@@ -331,6 +335,7 @@ def run_distillation_step(distillation_epochs: int) -> None:
 
     fallback_command = build_distillation_command(
         distillation_epochs=distillation_epochs,
+        student_architecture=student_architecture,
         teacher_device="cpu",
     )
     log.warning(
@@ -363,6 +368,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Defaults to DISTILLATION_EPOCHS env var if set, otherwise 1."
         ),
     )
+    parser.add_argument(
+        "--student-architecture",
+        default=os.environ.get("DISTILLATION_STUDENT_ARCHITECTURE", "fastvit_t8"),
+        help=(
+            "Student architecture. Defaults to DISTILLATION_STUDENT_ARCHITECTURE "
+            "env var if set, otherwise fastvit_t8."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -386,7 +399,10 @@ def main() -> None:
         step_name="dinomaly",
     )
 
-    run_distillation_step(distillation_epochs=args.distillation_epochs)
+    run_distillation_step(
+        distillation_epochs=args.distillation_epochs,
+        student_architecture=args.student_architecture,
+    )
     log.info("Retraining pipeline completed")
 
 

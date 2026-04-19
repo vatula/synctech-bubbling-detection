@@ -260,7 +260,9 @@ def test_evaluate_localization_uses_model_calibrated_threshold(
         _LocalizationSample(path=Path("nominal.png"), label=0),
         _LocalizationSample(path=Path("bubbling.png"), label=1),
     ]
-    metrics, _, localization_context = evaluate_localization(cast(list[object], samples))
+    metrics, _, localization_context = evaluate_localization(
+        cast(list[object], samples)
+    )
 
     assert observed_threshold["value"] == 0.73
     assert localization_context["score_threshold"] == 0.73
