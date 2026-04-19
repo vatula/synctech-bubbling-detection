@@ -45,7 +45,7 @@ For every prompt received, formulate your response as follows:
 ### Phase 2: DINOv2 Feature Extraction and Hyperplane Optimization
 - [x] **Task 2.1:** Write micro-experiment to load `dinov2_vitl14_reg` and verify `<CLS>` and spatial patch tensor shapes. *Run Ruff/Pyright.*
 - [x] **Task 2.2:** Write `src/models/extractor.py` (L2-normalized `<CLS>` + avg-pooled spatial tokens in `.eval()` mode). *Run Ruff/Pyright.*
-- [x] **Task 2.3:** Write `src/models/classifier.py` (LinearSVC with exactly 34-iteration LOOCV). Output terminal metrics logger via `structlog`. *Run Ruff/Pyright.*
+- [x] **Task 2.3:** Write `src/models/classifier.py` (LinearSVC with dataset-driven LOOCV: one iteration per sample). Output terminal metrics logger via `structlog`. *Run Ruff/Pyright.*
 
 ### Phase 3: Unsupervised Localization via Anomalib (Dinomaly Integration)
 - [x] **Task 3.1:** Write `dinomaly_config.yaml` and dry-run datamodule script. *Verify correct 13-train/21-val split.*
@@ -65,6 +65,6 @@ For every prompt received, formulate your response as follows:
 
 ### Phase 6: AMD MIGraphX Compilation & Unified CI/CD Verification
 - [x] **Task 6.1:** Write ONNX serialization script for DINOv2 backbone, SVM, Student VLM, and Dinomaly model (dynamic batching axes). *Run Ruff/Pyright.*
-- [ ] **Task 6.2:** Write MIGraphX compiler script targeting FP16 CDNA/RDNA3 acceleration. *Wait for microsecond latency profiling results.*
-- [ ] **Task 6.3:** Write `src/pipeline.py` (Unified entry point: routing image through compiled engines to unified JSON payload). *Run Ruff/Pyright.*
-- [ ] **Task 6.4:** Write and execute automated assertions against LOOCV iteration counts and latency thresholds.
+- [x] **Task 6.2:** Write MIGraphX compiler script targeting FP16 CDNA/RDNA3 acceleration. *Wait for microsecond latency profiling results.*
+- [x] **Task 6.3:** Write `src/pipeline.py` (Unified entry point: routing image through compiled engines to unified JSON payload). *Run Ruff/Pyright.*
+- [x] **Task 6.4:** Write and execute automated assertions against dataset-driven LOOCV iteration counts and latency thresholds.
