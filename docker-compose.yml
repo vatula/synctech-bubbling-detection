@@ -53,4 +53,5 @@ services:
     container_name: bubbling-detection-report-renderer
     command: >
       bash -lc "set -euo pipefail;
-      python3 generate_final_report.py"
+      chmod +x ./render_report.sh;
+      ./render_report.sh"

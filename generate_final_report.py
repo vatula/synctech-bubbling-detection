@@ -7,7 +7,7 @@ import structlog
 logger = structlog.get_logger()
 
 # Constants
-REPORT_NAME: Final = "Final_SyncTech_Evaluation_Report.md"
+REPORT_NAME: Final = "EVALUATION_REPORT.md"
 METRICS_PATH: Final = "pipeline_metrics_report.md"
 CONSOLIDATED_REPORT_PATH: Final = "results/phase5_consolidated_report.md"
 LOSS_CURVE_PATH: Final = "results/phase5_distillation_loss_curve.png"
@@ -44,7 +44,7 @@ def generate_report() -> None:
     logger.info("Generating report", report_name=REPORT_NAME)
 
     with open(REPORT_NAME, "w") as f:
-        f.write("# Final SyncTech Evaluation Report\n\n")
+        f.write("# Evaluation Report: Learning Bubbling Concept\n\n")
 
         # Section 1: Generated Training Records
         f.write("## 1. Generated Training Records\n")
@@ -141,6 +141,19 @@ def generate_report() -> None:
 
         f.write("\n")
         f.write("**Out-of-Distribution (OOD) Tests & Qualitative Observations:**\n")
+
+        # Methodology explanation to be added
+        f.write(
+            "To evaluate the model's resilience to environmental noise, the pipeline performs OOD tests using a set of 'Hard Negative' samples. "
+            "These images contain visual patterns—such as fabric folds, staining, and surface textures on non-plasterboard materials—that mimic the visual topology of bubbling defects. "
+            "This setup exposes the localization model's sensitivity to background noise and verifies the filtration effectiveness of the downstream semantic and SVM classification stages.\n\n"
+        )
+
+        f.write(
+            "\n---\n"
+        )
+
+
         hard_negative_image = os.listdir(HARD_NEGATIVES_DIR)[0]
         f.write(
             f"![Hard Negative Triptych](results/Dinomaly/bubbling/"
