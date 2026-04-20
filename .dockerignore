@@ -10,5 +10,4 @@ resources/assignment/
 notebooks/
 results/
 .cache/
-uv.lock
 .env
