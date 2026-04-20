@@ -302,61 +302,76 @@ def test_qwen_teacher_encoder_trainable_parameters() -> None:
         )
         assert len(encoder.trainable_parameters()) == 0
 
-    class TrainableDummyTeacher(DummyTeacher):
-        def __init__(self, embedding_dim: int, trainable: bool = True) -> None:
-            super().__init__(embedding_dim)
-            self.trainable = trainable
-            self.param = torch.nn.Parameter(torch.randn(1, embedding_dim))
 
-        def trainable_parameters(self) -> list[torch.nn.Parameter]:
-            return [self.param] if self.trainable else []
+class TrainableDummyTeacher(DummyTeacher):
+    def __init__(self, embedding_dim: int, trainable: bool = True) -> None:
+        super().__init__(embedding_dim)
+        self.trainable = trainable
+        self.param = torch.nn.Parameter(torch.randn(1, embedding_dim))
 
-        @property
-        def teacher_lora_lr(self) -> float:
-            return 5e-5
+    def trainable_parameters(self) -> list[torch.nn.Parameter]:
+        return [self.param] if self.trainable else []
 
-    def test_contrastive_trainer_optimizer_wiring() -> None:
-        # Trainable teacher
-        teacher = TrainableDummyTeacher(embedding_dim=16, trainable=True)
-        student = TinyCNNStudent(embedding_dim=16)
-        trainer = ContrastiveDistillationTrainer(teacher=teacher, student=student)
+    def encode_images(self, images: torch.Tensor, prompts: list[str]) -> torch.Tensor:
+        base_features = super().encode_images(images, prompts)
+        if self.trainable:
+            param = self.param.to(base_features.device)
+            return base_features + param.expand(base_features.shape[0], -1)
+        return base_features
 
-        # Initial param values
-        initial_teacher_param = teacher.param.clone()
+    @property
+    def teacher_lora_lr(self) -> float:
+        return 5e-5
 
-        images = torch.rand(2, 3, DEFAULT_IMAGE_SIZE, DEFAULT_IMAGE_SIZE)
-        trainer.train_step(images=images)
 
-        # Check if teacher param changed
-        assert not torch.equal(teacher.param, initial_teacher_param)
+def test_contrastive_trainer_optimizer_wiring() -> None:
+    # Trainable teacher
+    teacher = TrainableDummyTeacher(embedding_dim=16, trainable=True)
+    student = TinyCNNStudent(embedding_dim=16)
+    trainer = ContrastiveDistillationTrainer(teacher=teacher, student=student)
 
-        # Non-trainable teacher
-        teacher = TrainableDummyTeacher(embedding_dim=16, trainable=False)
-        student = TinyCNNStudent(embedding_dim=16)
-        trainer = ContrastiveDistillationTrainer(teacher=teacher, student=student)
+    # Initial param values
+    initial_teacher_param = teacher.param.clone()
 
-        # Initial param values
-        initial_teacher_param = teacher.param.clone()
+    images = torch.rand(2, 3, DEFAULT_IMAGE_SIZE, DEFAULT_IMAGE_SIZE)
+    trainer.train_step(images=images)
 
-        trainer.train_step(images=images)
+    # Check if teacher param changed
+    assert not torch.equal(teacher.param, initial_teacher_param)
 
-        # Check if teacher param changed
-        assert torch.equal(teacher.param, initial_teacher_param)
+    # Non-trainable teacher
+    teacher = TrainableDummyTeacher(embedding_dim=16, trainable=False)
+    student = TinyCNNStudent(embedding_dim=16)
+    trainer = ContrastiveDistillationTrainer(teacher=teacher, student=student)
 
-    def test_save_distillation_checkpoint_stores_metadata() -> None:
-        mock_teacher = MagicMock()
-        mock_teacher.lora_metadata = {
-            "enabled": True,
-            "trainable": True,
-            "config_path": "test.json",
-            "lr": 1e-4,
-            "target_modules": ["q_proj", "k_proj"],
-        }
-        student = TinyCNNStudent(embedding_dim=16)
-        history = [0.1]
+    # Initial param values
+    initial_teacher_param = teacher.param.clone()
 
-        with patch("torch.save") as mock_save:
-            save_distillation_checkpoint(student, mock_teacher, history, Path("."))
-            args, _ = mock_save.call_args
-            payload = args[0]
-            assert payload["teacher_lora_metadata"] == mock_teacher.lora_metadata
+    trainer.train_step(images=images)
+
+    # Check if teacher param changed
+    assert torch.equal(teacher.param, initial_teacher_param)
+
+
+def test_save_distillation_checkpoint_stores_metadata() -> None:
+    mock_teacher = MagicMock()
+    mock_teacher.lora_metadata = {
+        "enabled": True,
+        "trainable": True,
+        "config_path": "test.json",
+        "lr": 1e-4,
+        "target_modules": ["q_proj", "k_proj"],
+    }
+    student = TinyCNNStudent(embedding_dim=16)
+    history = [0.1]
+
+    with patch("torch.save") as mock_save:
+        save_distillation_checkpoint(student, mock_teacher, history, Path("."))
+        args, _ = mock_save.call_args
+        payload = args[0]
+        assert payload["teacher_lora_metadata"] == mock_teacher.lora_metadata
+        assert payload["teacher_lora_enabled"] is True
+        assert payload["teacher_lora_trainable"] is True
+        assert payload["teacher_lora_config_path"] == "test.json"
+        assert payload["teacher_lora_lr"] == 1e-4
+        assert payload["teacher_lora_target_modules"] == ["q_proj", "k_proj"]

@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms.functional as tvf
-from peft import get_peft_model
+from peft import LoraConfig, get_peft_model
 from PIL import Image
 from torch.utils.data import DataLoader
 from transformers import AutoProcessor
@@ -19,6 +19,7 @@ from transformers import AutoProcessor
 from src.data.loader import BubblingDataset
 from src.data.transforms import get_train_transforms
 from src.models.qlora_config import build_lora_config, load_qlora_config
+from src.utils.args import positive_float, positive_int, str_to_bool
 from src.utils.image_size import resolve_image_size
 from src.utils.logger import get_logger, setup_project
 
@@ -201,14 +202,22 @@ class QwenTeacherEncoder:
 
     @property
     def lora_metadata(self) -> dict[str, Any]:
+        targets = None
+        if self.teacher_lora_enabled:
+            target = cast(LoraConfig, self.model.peft_config["default"]).target_modules
+            if target is None:
+                targets = []
+            elif isinstance(target, str):
+                targets = [target]
+            else:
+                targets = list(target)
+
         return {
             "enabled": self.teacher_lora_enabled,
             "trainable": self.teacher_lora_trainable,
             "config_path": str(self.teacher_lora_config_path),
             "lr": self.teacher_lora_lr,
-            "target_modules": list(self.model.peft_config["default"].target_modules)
-            if self.teacher_lora_enabled
-            else None,
+            "target_modules": targets,
         }
 
     def _to_pil(self, tensor: torch.Tensor) -> Image.Image:
@@ -270,12 +279,21 @@ class QwenTeacherEncoder:
                 value.to(self.device) if isinstance(value, torch.Tensor) else value
             )
 
-        with torch.no_grad():
+        trainable = len(self.trainable_parameters()) > 0
+
+        if trainable:
             outputs = self.model(
                 **model_inputs,
                 output_hidden_states=True,
                 return_dict=True,
             )
+        else:
+            with torch.no_grad():
+                outputs = self.model(
+                    **model_inputs,
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
 
         hidden_states = outputs.hidden_states
         if hidden_states is None:
@@ -284,7 +302,7 @@ class QwenTeacherEncoder:
 
         last_hidden = hidden_states[-1]
         teacher_embeddings = F.normalize(last_hidden[:, -1, :], dim=-1)
-        return teacher_embeddings.detach()
+        return teacher_embeddings if trainable else teacher_embeddings.detach()
 
 
 class TinyCNNStudent(nn.Module):
@@ -569,19 +587,26 @@ def save_distillation_checkpoint(
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = checkpoint_dir / "student_distillation.pt"
 
+    lora_metadata = teacher.lora_metadata
+
     payload: dict[str, object] = {
         "student_state_dict": student.state_dict(),
         "student_architecture": _resolve_student_architecture(student),
         "loss_history": history,
         "epochs": len(history),
-        "teacher_lora_metadata": teacher.lora_metadata,
+        "teacher_lora_metadata": lora_metadata,
+        "teacher_lora_enabled": lora_metadata.get("enabled", False),
+        "teacher_lora_trainable": lora_metadata.get("trainable", False),
+        "teacher_lora_config_path": lora_metadata.get("config_path"),
+        "teacher_lora_lr": lora_metadata.get("lr"),
+        "teacher_lora_target_modules": lora_metadata.get("target_modules"),
     }
     torch.save(payload, checkpoint_path)
     log.info(
         "Saved distillation checkpoint",
         path=str(checkpoint_path),
         epochs=len(history),
-        teacher_lora_metadata=teacher.lora_metadata,
+        teacher_lora_metadata=lora_metadata,
     )
     return checkpoint_path
 
@@ -606,14 +631,6 @@ def build_distillation_dataloader(
         shuffle=True,
         num_workers=num_workers,
     )
-
-
-def _positive_int(raw_value: str) -> int:
-    parsed_value = int(raw_value)
-    if parsed_value < 1:
-        msg = "Value must be a positive integer"
-        raise argparse.ArgumentTypeError(msg)
-    return parsed_value
 
 
 def _resolve_default_epochs() -> int:
@@ -644,7 +661,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--epochs",
-        type=_positive_int,
+        type=positive_int,
         default=_resolve_default_epochs(),
         help=(
             "Number of distillation epochs. "
@@ -671,7 +688,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--teacher-lora-enabled",
-        type=lambda x: x.lower() == "true",
+        type=str_to_bool,
         default=os.environ.get("DISTILLATION_TEACHER_LORA_ENABLED", "false").lower()
         == "true",
         help="Whether to enable Teacher LoRA.",
@@ -689,14 +706,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--teacher-lora-trainable",
-        type=lambda x: x.lower() == "true",
+        type=str_to_bool,
         default=os.environ.get("DISTILLATION_TEACHER_LORA_TRAINABLE", "false").lower()
         == "true",
         help="Whether Teacher LoRA adapters are trainable.",
     )
     parser.add_argument(
         "--teacher-lora-lr",
-        type=float,
+        type=positive_float,
         default=float(os.environ.get("DISTILLATION_TEACHER_LORA_LR", "5e-5")),
         help="Learning rate for Teacher LoRA adapters.",
     )

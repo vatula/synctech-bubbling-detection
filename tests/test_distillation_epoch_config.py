@@ -93,7 +93,7 @@ def test_run_distillation_step_retries_on_sigsegv(
     )
 
     assert len(calls) == 2
-    first_command, first_step = calls[0]
+    _, first_step = calls[0]
     second_command, second_step = calls[1]
     assert first_step == "distillation"
     assert second_step == "distillation_cpu_fallback"

@@ -4,7 +4,11 @@ x-service-common: &service-common
     network: host
   user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
   volumes:
-    - .:/app:z
+    - ${CACHE_ROOT:-./.cache}/uv:/cache/uv
+    - ${CACHE_ROOT:-./.cache}/pip:/cache/pip
+    - ${CACHE_ROOT:-./.cache}/hf:/cache/hf
+    - ${DATASET_PATH:-./resources/assignment}:/app/resources/assignment:ro
+    - ${RESULTS_PATH:-./results}:/app/results:rw
   devices:
     - /dev/kfd:/dev/kfd
     - /dev/dri:/dev/dri
@@ -21,6 +25,11 @@ x-service-common: &service-common
     DISTILLATION_STUDENT_ARCHITECTURE: ${DISTILLATION_STUDENT_ARCHITECTURE:-fastvit_t8}
     MIGRAPHX_PYTHON_PATH: ${MIGRAPHX_PYTHON_PATH:-/opt/rocm/lib}
     PYTHONPATH: ${MIGRAPHX_PYTHON_PATH:-/opt/rocm/lib}:${PYTHONPATH:-}
+    UV_CACHE_DIR: /cache/uv
+    UV_PROJECT_ENVIRONMENT: /cache/uv/project-env
+    HF_HOME: /cache/hf
+    TRANSFORMERS_CACHE: /cache/hf
+    PIP_CACHE_DIR: /cache/pip
 
 services:
   training:
@@ -28,7 +37,6 @@ services:
     container_name: bubbling-detection-training
     command: >
       bash -lc "set -euo pipefail;
-      chmod +x ./retrain.sh ./evaluate.sh;
       ./retrain.sh;
       ./evaluate.sh"
 
@@ -37,7 +45,6 @@ services:
     container_name: bubbling-detection-pipeline
     command: >
       bash -lc "set -euo pipefail;
-      chmod +x ./run_pipeline.sh;
       ./run_pipeline.sh"
 
   cleanup:
@@ -45,7 +52,6 @@ services:
     container_name: bubbling-detection-cleanup
     command: >
       bash -lc "set -euo pipefail;
-      chmod +x ./cleanup.sh;
       ./cleanup.sh;"
 
   report-renderer:
@@ -53,5 +59,65 @@ services:
     container_name: bubbling-detection-report-renderer
     command: >
       bash -lc "set -euo pipefail;
-      chmod +x ./render_report.sh;
       ./render_report.sh"
+
+  training-dev:
+    <<: *service-common
+    profiles: ["dev"]
+    container_name: bubbling-detection-training-dev
+    command: >
+      bash -lc "set -euo pipefail;
+      ./retrain.sh;
+      ./evaluate.sh"
+    volumes:
+      - .:/app
+      - ${CACHE_ROOT:-./.cache}/uv:/cache/uv
+      - ${CACHE_ROOT:-./.cache}/pip:/cache/pip
+      - ${CACHE_ROOT:-./.cache}/hf:/cache/hf
+      - ${DATASET_PATH:-./resources/assignment}:/app/resources/assignment:ro
+      - ${RESULTS_PATH:-./results}:/app/results:rw
+
+  pipeline-dev:
+    <<: *service-common
+    profiles: ["dev"]
+    container_name: bubbling-detection-pipeline-dev
+    command: >
+      bash -lc "set -euo pipefail;
+      ./run_pipeline.sh"
+    volumes:
+      - .:/app
+      - ${CACHE_ROOT:-./.cache}/uv:/cache/uv
+      - ${CACHE_ROOT:-./.cache}/pip:/cache/pip
+      - ${CACHE_ROOT:-./.cache}/hf:/cache/hf
+      - ${DATASET_PATH:-./resources/assignment}:/app/resources/assignment:ro
+      - ${RESULTS_PATH:-./results}:/app/results:rw
+
+  cleanup-dev:
+    <<: *service-common
+    profiles: ["dev"]
+    container_name: bubbling-detection-cleanup-dev
+    command: >
+      bash -lc "set -euo pipefail;
+      ./cleanup.sh;"
+    volumes:
+      - .:/app
+      - ${CACHE_ROOT:-./.cache}/uv:/cache/uv
+      - ${CACHE_ROOT:-./.cache}/pip:/cache/pip
+      - ${CACHE_ROOT:-./.cache}/hf:/cache/hf
+      - ${DATASET_PATH:-./resources/assignment}:/app/resources/assignment:ro
+      - ${RESULTS_PATH:-./results}:/app/results:rw
+
+  report-renderer-dev:
+    <<: *service-common
+    profiles: ["dev"]
+    container_name: bubbling-detection-report-renderer-dev
+    command: >
+      bash -lc "set -euo pipefail;
+      ./render_report.sh"
+    volumes:
+      - .:/app
+      - ${CACHE_ROOT:-./.cache}/uv:/cache/uv
+      - ${CACHE_ROOT:-./.cache}/pip:/cache/pip
+      - ${CACHE_ROOT:-./.cache}/hf:/cache/hf
+      - ${DATASET_PATH:-./resources/assignment}:/app/resources/assignment:ro
+      - ${RESULTS_PATH:-./results}:/app/results:rw

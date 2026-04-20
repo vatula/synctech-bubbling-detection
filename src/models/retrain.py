@@ -12,6 +12,7 @@ from pathlib import Path
 
 import torch
 
+from src.utils.args import positive_float, positive_int, str_to_bool
 from src.utils.logger import get_logger, setup_project
 
 log = get_logger("retrain")
@@ -62,14 +63,6 @@ def _read_positive_int_setting(env_key: str, default_value: int) -> int:
     if value <= 0:
         msg = f"{env_key} must be greater than 0, got {value}"
         raise RuntimeError(msg)
-    return value
-
-
-def _positive_int(raw_value: str) -> int:
-    value = int(raw_value)
-    if value <= 0:
-        msg = "Value must be a positive integer"
-        raise argparse.ArgumentTypeError(msg)
     return value
 
 
@@ -387,7 +380,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--distillation-epochs",
-        type=_positive_int,
+        type=positive_int,
         default=_read_positive_int_setting(_DISTILLATION_EPOCHS_ENV, default_value=1),
         help=(
             "Number of distillation epochs to run. "
@@ -404,7 +397,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--teacher-lora-enabled",
-        type=lambda x: x.lower() == "true",
+        type=str_to_bool,
         default=os.environ.get("DISTILLATION_TEACHER_LORA_ENABLED", "false").lower()
         == "true",
         help="Whether to enable Teacher LoRA.",
@@ -422,14 +415,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--teacher-lora-trainable",
-        type=lambda x: x.lower() == "true",
+        type=str_to_bool,
         default=os.environ.get("DISTILLATION_TEACHER_LORA_TRAINABLE", "false").lower()
         == "true",
         help="Whether Teacher LoRA adapters are trainable.",
     )
     parser.add_argument(
         "--teacher-lora-lr",
-        type=float,
+        type=positive_float,
         default=float(os.environ.get("DISTILLATION_TEACHER_LORA_LR", "5e-5")),
         help="Learning rate for Teacher LoRA adapters.",
     )

@@ -43,6 +43,16 @@ class LinearSVCPredictor(nn.Module):
         return flattened_scores, predicted_labels
 
 
+class CommandExecutionError(RuntimeError):
+    def __init__(self, command: list[str], return_code: int, stderr: str) -> None:
+        self.command = command
+        self.return_code = return_code
+        self.stderr = stderr
+        super().__init__(
+            f"Command failed with exit code {return_code}: {' '.join(command)}"
+        )
+
+
 def _resolve_dinomaly_checkpoint() -> Path:
     preferred = Path("results/Dinomaly/bubbling/latest/weights/lightning/model.ckpt")
     if preferred.exists():
@@ -226,7 +236,7 @@ def _export_student_model(
     )
 
 
-def _run_command(command: list[str]) -> None:
+def _run_command(command: list[str], *, log_failure: bool = True) -> None:
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
     if completed.returncode == 0:
         log.info(
@@ -236,14 +246,42 @@ def _run_command(command: list[str]) -> None:
         )
         return
 
-    log.warning(
-        "Command failed",
-        command=" ".join(command),
+    stderr = completed.stderr.strip()
+    if log_failure:
+        log.warning(
+            "Command failed",
+            command=" ".join(command),
+            return_code=completed.returncode,
+            stderr=stderr,
+        )
+    raise CommandExecutionError(
+        command=command,
         return_code=completed.returncode,
-        stderr=completed.stderr.strip(),
+        stderr=stderr,
     )
-    msg = f"Command failed with exit code {completed.returncode}: {' '.join(command)}"
-    raise RuntimeError(msg)
+
+
+def _build_dinomaly_export_command(
+    config_path: Path,
+    checkpoint_path: Path,
+    export_root: Path,
+    output_flag: str | None,
+) -> list[str]:
+    command = [
+        "python",
+        "-m",
+        "src.utils.anomalib_entrypoint",
+        "export",
+        "--config",
+        str(config_path),
+        "--ckpt_path",
+        str(checkpoint_path),
+        "--export_type",
+        "ONNX",
+    ]
+    if output_flag is not None:
+        command.extend([output_flag, str(export_root)])
+    return command
 
 
 def _export_dinomaly_onnx(
@@ -252,63 +290,51 @@ def _export_dinomaly_onnx(
     export_root: Path,
 ) -> None:
     export_root.mkdir(parents=True, exist_ok=True)
-    command_variants = [
-        [
-            "python",
-            "-m",
-            "src.utils.anomalib_entrypoint",
-            "export",
-            "--config",
-            str(config_path),
-            "--ckpt_path",
-            str(checkpoint_path),
-            "--export_type",
-            "ONNX",
-            "--output",
-            str(export_root),
-        ],
-        [
-            "python",
-            "-m",
-            "src.utils.anomalib_entrypoint",
-            "export",
-            "--config",
-            str(config_path),
-            "--ckpt_path",
-            str(checkpoint_path),
-            "--export_type",
-            "ONNX",
-            "--export_root",
-            str(export_root),
-        ],
-        [
-            "python",
-            "-m",
-            "src.utils.anomalib_entrypoint",
-            "export",
-            "--config",
-            str(config_path),
-            "--ckpt_path",
-            str(checkpoint_path),
-            "--export_type",
-            "ONNX",
-        ],
-    ]
+    # Newer anomalib CLI prefers `--export_root`, while some older builds
+    # still accept `--output`. Prioritize the modern flag first.
+    output_flag_candidates: list[str | None] = ["--export_root", "--output", None]
 
-    last_error: RuntimeError | None = None
-    for command in command_variants:
+    last_error: CommandExecutionError | None = None
+    for index, output_flag in enumerate(output_flag_candidates):
+        command = _build_dinomaly_export_command(
+            config_path=config_path,
+            checkpoint_path=checkpoint_path,
+            export_root=export_root,
+            output_flag=output_flag,
+        )
         try:
-            _run_command(command=command)
+            _run_command(command=command, log_failure=False)
             log.info(
                 "Exported Dinomaly ONNX graph",
                 checkpoint_path=str(checkpoint_path),
                 export_root=str(export_root),
+                output_flag=output_flag if output_flag is not None else "<none>",
             )
             return
-        except RuntimeError as error:
+        except CommandExecutionError as error:
             last_error = error
+            if index < len(output_flag_candidates) - 1:
+                log.info(
+                    (
+                        "Dinomaly export command variant failed; "
+                        "retrying compatibility variant"
+                    ),
+                    command=" ".join(command),
+                    output_flag=output_flag if output_flag is not None else "<none>",
+                    return_code=error.return_code,
+                )
 
     if last_error is not None:
+        log.warning(
+            "Dinomaly export failed after all command variants",
+            attempted_output_flags=[
+                candidate if candidate is not None else "<none>"
+                for candidate in output_flag_candidates
+            ],
+            last_command=" ".join(last_error.command),
+            last_return_code=last_error.return_code,
+            last_stderr=last_error.stderr,
+        )
         raise last_error
 
     msg = "Dinomaly ONNX export failed unexpectedly"
