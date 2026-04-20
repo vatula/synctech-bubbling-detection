@@ -47,3 +47,10 @@ services:
       bash -lc "set -euo pipefail;
       chmod +x ./cleanup.sh;
       ./cleanup.sh;"
+
+  report-renderer:
+    <<: *service-common
+    container_name: bubbling-detection-report-renderer
+    command: >
+      bash -lc "set -euo pipefail;
+      python3 generate_final_report.py"
