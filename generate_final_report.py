@@ -1,3 +1,4 @@
+import base64
 import os
 from typing import Final
 
@@ -18,6 +19,15 @@ HARD_NEGATIVES_DIR: Final = (
     "results/Dinomaly/bubbling/latest/images/hard-negatives-bubbling"
 )
 TRIPTYCHS_DIR: Final = "results/Dinomaly/bubbling/latest/images/hard-negatives-bubbling"  # Using this as a source for triptychs
+
+
+def image_to_base64(image_path: str) -> str:
+    """Reads an image file and returns its base64 encoded string."""
+    ext = os.path.splitext(image_path)[1].lower()
+    mime_type = "image/png" if ext == ".png" else "image/jpeg"
+    with open(image_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+    return f"data:{mime_type};base64,{encoded_string}"
 
 
 def validate_artifacts() -> None:
@@ -50,9 +60,10 @@ def generate_report() -> None:
         f.write("## 1. Generated Training Records\n")
         # Logic to find one image
         train_image = os.listdir(TRAIN_IMAGES_DIR)[0]
+        train_image_path = os.path.join(TRAIN_IMAGES_DIR, train_image)
         f.write(
-            "![Training Image](results/Dinomaly/bubbling/latest/images/"
-            f"train-bubbling/{train_image})\n\n"
+            f'<img src="{image_to_base64(train_image_path)}" '
+            'alt="Training Image" />\n\n'
         )
         f.write(
             "Data augmentation strategy employed strict D4 dihedral "
@@ -65,7 +76,9 @@ def generate_report() -> None:
 
         # Section 2: Before / After Results (Train vs. Evaluation)
         f.write("## 2. Before / After Results (Train vs. Evaluation)\n")
-        f.write(f"![Loss Curve]({LOSS_CURVE_PATH})\n\n")
+        f.write(
+            f'<img src="{image_to_base64(LOSS_CURVE_PATH)}" alt="Loss Curve" />\n\n'
+        )
         f.write(
             "The semantic distillation loss curve demonstrates the Student "
             "VLM's contrastive loss over 100 epochs, showing a steep "
@@ -77,7 +90,8 @@ def generate_report() -> None:
         triptych_image = [
             img for img in os.listdir(TRIPTYCHS_DIR) if img.endswith((".jpg", ".png"))
         ][0]
-        f.write(f"![Triptych]({os.path.join(TRIPTYCHS_DIR, triptych_image)})\n\n")
+        triptych_path = os.path.join(TRIPTYCHS_DIR, triptych_image)
+        f.write(f'<img src="{image_to_base64(triptych_path)}" alt="Triptych" />\n\n')
         f.write(
             "The threshold calibration compares the default threshold "
             "(which generates noisy bounding boxes) against our "
@@ -144,21 +158,22 @@ def generate_report() -> None:
 
         # Methodology explanation to be added
         f.write(
-            "To evaluate the model's resilience to environmental noise, the pipeline performs OOD tests using a set of 'Hard Negative' samples. "
-            "These images contain visual patterns—such as fabric folds, staining, and surface textures on non-plasterboard materials—that mimic the visual topology of bubbling defects. "
-            "This setup exposes the localization model's sensitivity to background noise and verifies the filtration effectiveness of the downstream semantic and SVM classification stages.\n\n"
+            "To evaluate the model's resilience to environmental noise, the pipeline "
+            "performs OOD tests using a set of 'Hard Negative' samples. "
+            "These images contain visual patterns—such as fabric folds, staining, and "
+            "surface textures on non-plasterboard materials—that mimic the visual "
+            "topology of bubbling defects. This setup exposes the localization model's "
+            "sensitivity to background noise and verifies the filtration effectiveness "
+            "of the downstream semantic and SVM classification stages.\n\n"
         )
 
-        f.write(
-            "\n---\n"
-        )
-
+        f.write("\n---\n")
 
         hard_negative_image = os.listdir(HARD_NEGATIVES_DIR)[0]
+        hard_negative_path = os.path.join(HARD_NEGATIVES_DIR, hard_negative_image)
         f.write(
-            f"![Hard Negative Triptych](results/Dinomaly/bubbling/"
-            f"latest/images/hard-negatives-bubbling/"
-            f"{hard_negative_image})\n\n"
+            f'<img src="{image_to_base64(hard_negative_path)}" '
+            'alt="Hard Negative Triptych" />\n\n'
         )
 
         f.write(
