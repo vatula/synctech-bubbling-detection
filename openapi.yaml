@@ -1,0 +1,142 @@
+openapi: 3.0.3
+info:
+  title: SyncTech Unified Inference API
+  description: >
+    Internal microservice API for executing the spatial-first visual inspection pipeline. 
+    Ingests an image and returns a unified telemetry payload containing SVM classification, 
+    Dinomaly localization bounding boxes, and FastViT distilled semantic reasoning.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Edge Device Python Runtime (MIGraphX / ROCm / CUDA)
+
+paths:
+  /inspect:
+    post:
+      summary: Run End-to-End Visual Inspection
+      description: Ingests a surface image and processes it through the dual-pipeline inference engine.
+      operationId: inspectImage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: The raw image file (JPEG/PNG) to be inspected. Maximum resolution governed by the server.
+      responses:
+        '200':
+          description: Successful Inference Complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InferenceResult'
+        '400':
+          description: Bad Request (Invalid file type or corrupted image)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Unprocessable Entity (FastAPI standard validation error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error (Compute/MIGraphX execution failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    ClassificationEnum:
+      type: string
+      enum:
+        - NOMINAL
+        - BUBBLING
+      description: The hard binary classification determined by the SVM.
+
+    BoundingBox:
+      type: object
+      required:
+        - xmin
+        - ymin
+        - xmax
+        - ymax
+        - score
+      properties:
+        xmin:
+          type: number
+          format: float
+          description: Absolute pixel coordinate for the top-left X axis.
+        ymin:
+          type: number
+          format: float
+          description: Absolute pixel coordinate for the top-left Y axis.
+        xmax:
+          type: number
+          format: float
+          description: Absolute pixel coordinate for the bottom-right X axis.
+        ymax:
+          type: number
+          format: float
+          description: Absolute pixel coordinate for the bottom-right Y axis.
+        score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: The localized anomaly confidence score for this specific box.
+
+    InferenceResult:
+      type: object
+      required:
+        - classification
+        - confidenceScore
+        - boundingBoxes
+        - semanticAnalysis
+        - latency_ms
+      properties:
+        classification:
+          $ref: '#/components/schemas/ClassificationEnum'
+        confidenceScore:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: The overarching confidence score of the system (derived from SVM distance or Student probability).
+        boundingBoxes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoundingBox'
+          description: Array of localized defect regions. Will be an empty array [] if Classification is NOMINAL.
+        semanticAnalysis:
+          type: string
+          description: Textual reasoning emitted by the Distilled VLM (FastViT) verifying or overriding the localization.
+        latency_ms:
+          type: number
+          format: float
+          minimum: 0.0
+          description: End-to-end inference execution time on the edge hardware in milliseconds.
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: High-level error type (e.g., 'ValidationError', 'ComputeError').
+        message:
+          type: string
+          description: Detailed explanation of the error for telemetry and logging.

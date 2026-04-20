@@ -259,6 +259,10 @@ def build_distillation_command(
     distillation_epochs: int,
     student_architecture: str,
     teacher_device: str | None = None,
+    teacher_lora_enabled: bool = False,
+    teacher_lora_config_path: Path | None = None,
+    teacher_lora_trainable: bool = False,
+    teacher_lora_lr: float = 5e-5,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -271,6 +275,13 @@ def build_distillation_command(
     ]
     if teacher_device is not None:
         command.extend(["--teacher-device", teacher_device])
+    if teacher_lora_enabled:
+        command.extend(["--teacher-lora-enabled", "true"])
+    if teacher_lora_config_path is not None:
+        command.extend(["--teacher-lora-config", str(teacher_lora_config_path)])
+    if teacher_lora_trainable:
+        command.extend(["--teacher-lora-trainable", "true"])
+    command.extend(["--teacher-lora-lr", str(teacher_lora_lr)])
     return command
 
 
@@ -321,10 +332,21 @@ def _run_streaming_command(command: list[str], step_name: str) -> None:
     )
 
 
-def run_distillation_step(distillation_epochs: int, student_architecture: str) -> None:
+def run_distillation_step(
+    distillation_epochs: int,
+    student_architecture: str,
+    teacher_lora_enabled: bool = False,
+    teacher_lora_config_path: Path | None = None,
+    teacher_lora_trainable: bool = False,
+    teacher_lora_lr: float = 5e-5,
+) -> None:
     initial_command = build_distillation_command(
         distillation_epochs=distillation_epochs,
         student_architecture=student_architecture,
+        teacher_lora_enabled=teacher_lora_enabled,
+        teacher_lora_config_path=teacher_lora_config_path,
+        teacher_lora_trainable=teacher_lora_trainable,
+        teacher_lora_lr=teacher_lora_lr,
     )
     try:
         _run_streaming_command(command=initial_command, step_name="distillation")
@@ -337,6 +359,10 @@ def run_distillation_step(distillation_epochs: int, student_architecture: str) -
         distillation_epochs=distillation_epochs,
         student_architecture=student_architecture,
         teacher_device="cpu",
+        teacher_lora_enabled=teacher_lora_enabled,
+        teacher_lora_config_path=teacher_lora_config_path,
+        teacher_lora_trainable=teacher_lora_trainable,
+        teacher_lora_lr=teacher_lora_lr,
     )
     log.warning(
         "Distillation exited with SIGSEGV; retrying on CPU teacher device",
@@ -376,6 +402,37 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "env var if set, otherwise fastvit_t8."
         ),
     )
+    parser.add_argument(
+        "--teacher-lora-enabled",
+        type=lambda x: x.lower() == "true",
+        default=os.environ.get("DISTILLATION_TEACHER_LORA_ENABLED", "false").lower()
+        == "true",
+        help="Whether to enable Teacher LoRA.",
+    )
+    parser.add_argument(
+        "--teacher-lora-config",
+        type=Path,
+        default=Path(
+            os.environ.get(
+                "DISTILLATION_TEACHER_LORA_CONFIG",
+                "results/phase4/task_4_2_qlora_config.json",
+            )
+        ),
+        help="Path to Teacher LoRA configuration file.",
+    )
+    parser.add_argument(
+        "--teacher-lora-trainable",
+        type=lambda x: x.lower() == "true",
+        default=os.environ.get("DISTILLATION_TEACHER_LORA_TRAINABLE", "false").lower()
+        == "true",
+        help="Whether Teacher LoRA adapters are trainable.",
+    )
+    parser.add_argument(
+        "--teacher-lora-lr",
+        type=float,
+        default=float(os.environ.get("DISTILLATION_TEACHER_LORA_LR", "5e-5")),
+        help="Learning rate for Teacher LoRA adapters.",
+    )
     return parser.parse_args(argv)
 
 
@@ -402,6 +459,10 @@ def main() -> None:
     run_distillation_step(
         distillation_epochs=args.distillation_epochs,
         student_architecture=args.student_architecture,
+        teacher_lora_enabled=args.teacher_lora_enabled,
+        teacher_lora_config_path=args.teacher_lora_config,
+        teacher_lora_trainable=args.teacher_lora_trainable,
+        teacher_lora_lr=args.teacher_lora_lr,
     )
     log.info("Retraining pipeline completed")
 

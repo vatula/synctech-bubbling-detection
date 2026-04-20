@@ -18,7 +18,8 @@ TRAIN_IMAGES_DIR: Final = "results/Dinomaly/bubbling/latest/images/train-bubblin
 HARD_NEGATIVES_DIR: Final = (
     "results/Dinomaly/bubbling/latest/images/hard-negatives-bubbling"
 )
-TRIPTYCHS_DIR: Final = "results/Dinomaly/bubbling/latest/images/hard-negatives-bubbling"  # Using this as a source for triptychs
+TRIPTYCHS_DIR: Final = "results/Dinomaly/bubbling/latest/images/hard-negatives-bubbling"
+# Using this as a source for triptychs
 
 
 def image_to_base64(image_path: str) -> str:
