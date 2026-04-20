@@ -1,0 +1,25 @@
+model:
+  class_path: anomalib.models.Dinomaly
+  init_args:
+    encoder_name: dinov2reg_vit_large_14
+    bottleneck_dropout: 0.1
+
+data:
+  class_path: anomalib.data.Folder
+  init_args:
+    name: bubbling
+    root: resources/assignment
+    normal_dir: hard-negatives-bubbling
+    abnormal_dir: train-bubbling
+    normal_test_dir: hard-negatives-bubbling
+    val_split_ratio: 0.99
+    val_split_mode: from_test
+    train_batch_size: 16
+    eval_batch_size: 16
+    num_workers: 16
+
+trainer:
+  accelerator: auto
+  devices: 1
+  max_epochs: 10
+  default_root_dir: results/dinomaly

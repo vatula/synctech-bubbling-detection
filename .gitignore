@@ -1,0 +1,9 @@
+/resources/assignment/train-bubbling/*
+/resources/assignment/hard-negatives-bubbling/*
+uv.lock
+.venv
+.idea
+/notebooks/
+/results/
+/.cache/
+.env
